@@ -104,53 +104,6 @@ trait CrmAuth extends SoapHelpers with LazyLogging {
 
       authHeader
     }
-
-    //    Future {
-    //      val LoginURL = new URL("https://login.microsoftonline.com/RST2.srf")
-    //      val rc = LoginURL.openConnection().asInstanceOf[java.net.HttpURLConnection]
-    //      rc.setRequestMethod("POST")
-    //      rc.setDoOutput(true)
-    //      rc.setDoInput(true)
-    //      rc.setRequestProperty("Content-Type", "application/soap+xml; charset=UTF-8")
-    //      val reqStr = xml.toString
-    //      val len: Int = reqStr.length()
-    //      rc.setRequestProperty("Content-Length", Integer.toString(len))
-    //      rc.connect()
-    //      val out = new OutputStreamWriter(rc.getOutputStream())
-    //      out.write(reqStr, 0, len)
-    //      out.flush()
-    //
-    //      val read = new InputStreamReader(rc.getInputStream())
-    //      val sb = new StringBuilder()
-    //      var ch: Int = read.read()
-    //      while (ch != -1) {
-    //        sb.append(ch.toChar)
-    //        ch = read.read()
-    //      }
-    //      val response = sb.toString()
-    //      read.close()
-    //      rc.disconnect()
-    //      logger.debug("GetHeaderOnline:\n" + response)
-    //
-    //      val builderFactory = DocumentBuilderFactory.newInstance()
-    //      val builder = builderFactory.newDocumentBuilder()
-    //      val x = builder.parse(new ByteArrayInputStream(response.getBytes()))
-    //
-    //      val cipherElements = x.getElementsByTagName("CipherValue")
-    //      val token1 = cipherElements.item(0).getTextContent()
-    //      val token2 = cipherElements.item(1).getTextContent()
-    //
-    //      val keyIdentiferElements = x.getElementsByTagName("wsse:KeyIdentifier");
-    //      val keyIdentifer = keyIdentiferElements.item(0).getTextContent()
-    //
-    //      val tokenExpiresElements = x.getElementsByTagName("wsu:Expires")
-    //      val tokenExpires = tokenExpiresElements.item(0).getTextContent()
-    //
-    //      val c = DatatypeConverter.parseDateTime(tokenExpires)
-    //      val authHeader = new CrmAuthenticationHeader(CreateSoapHeaderOnline(url, keyIdentifer, token1, token2), c.getTime())
-    //
-    //      authHeader
-    //    }
   }
 
   /**
@@ -219,48 +172,6 @@ trait CrmAuth extends SoapHelpers with LazyLogging {
     val default = "crmna:dynamics.com"
 
     regionmap.get(urlc) getOrElse default
-  }
-
-  /**
-   * Gets the name of the ADFS server CRM uses for authentication.
-   *
-   * @return String The AD FS server url.
-   * @param url
-   *            The Url of the CRM On Premise (IFD) organization
-   *            (https://org.domain.com).
-   * @throws IOException
-   * @throws ParserConfigurationException
-   * @throws SAXException
-   */
-  def GetAdfs(url: String): String = {
-    val WsdlURL = new URL(url + "/XrmServices/2011/Organization.svc?wsdl=wsdl0")
-    val rc = WsdlURL.openConnection().asInstanceOf[HttpURLConnection]
-
-    rc.setRequestMethod("GET");
-    rc.setDoOutput(true);
-
-    val read = new InputStreamReader(rc.getInputStream());
-    val sb = new StringBuilder();
-    var ch = read.read();
-    while (ch != -1) {
-      sb.append(ch.toChar);
-      ch = read.read();
-    }
-    val response = sb.toString();
-    read.close();
-    rc.disconnect();
-
-    val builderFactory = DocumentBuilderFactory
-      .newInstance();
-    val builder = builderFactory.newDocumentBuilder();
-    val x = builder
-      .parse(new ByteArrayInputStream(response.getBytes()));
-
-    val nodes = x.getElementsByTagName("ms-xrm:Identifier");
-    if (nodes.getLength() == 0)
-      return null;
-
-    nodes.item(0).getFirstChild().getTextContent().replace("http://", "https://");
   }
 
   /**
