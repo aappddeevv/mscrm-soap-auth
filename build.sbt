@@ -1,6 +1,6 @@
 enablePlugins(JavaAppPackaging)
 
-name := "crm-soap-auth"
+name := "mscrm-soap-auth"
 organization := "org.im"
 version := "1.0"
 scalaVersion := "2.11.8"
@@ -32,4 +32,4 @@ EclipseKeys.withSource := true
 
 packSettings
 
-packMain := Map("crmauth" -> "crm.program")
+packMain := Map("mscrmauth" -> "crm.program")
