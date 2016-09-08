@@ -10,8 +10,8 @@ trait SoapHelpers extends com.typesafe.scalalogging.LazyLogging {
    * Handler for catching a future TimeoutException. Can be composed with other
    * handlers you need.
    */
-  def catchTimeout = handling(classOf[java.util.concurrent.TimeoutException]) by { t =>
-    println("Timeout waiting for name. Check your arguments.")
+  def catchTimeout(name: String) = handling(classOf[java.util.concurrent.TimeoutException]) by { t =>
+    println(s"Timeout waiting for $name. Check your timeout arguments.")
   }
 
   /**

@@ -11,6 +11,7 @@ import scala.concurrent.duration._
 import scala.async.Async._
 import com.typesafe.scalalogging._
 import scala.util._
+import java.nio.file._
 
 case class Config(
   help: Boolean = false,
@@ -19,7 +20,9 @@ case class Config(
   password: String = "",
   timeout: Int = 60,
   getMetadata: Boolean = false,
-  filterFilename: String = "filters.txt")
+  filterFilename: String = "filters.txt",
+  objects: String = "Entity Relationships Attributes",
+  output: String = "metadata.xml")
 
 object program extends CrmAuth with SoapHelpers with LazyLogging {
 
@@ -38,6 +41,10 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
       .action((x, c) => c.copy(getMetadata = true))
     opt[String]('f', "filter").valueName("<filename>").text("Input regexp filter, one filter per line. No filters means accept everything.")
       .action((x, c) => c.copy(filterFilename = x))
+    opt[String]('o', "objects").valueName("<value list>").text("What metadata to return. Space separated list.")
+      .action((x, c) => c.copy(objects = x))
+    opt[String]("output").valueName("<filename>").text("Output file for metadata retrieved using -m. The entire SOAP envelope is output.")
+      .action((x, c) => c.copy(output = x))
     help("help").text("Show help")
     note("The url can be obtained from the developer resources web page within your CRM org.")
   }
@@ -70,7 +77,7 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
 
     // End of world, wait for the response.
     println("Obtaining WhoAmI...")
-    catchTimeout apply { Await.ready(nameFuture, config.timeout seconds) }
+    catchTimeout("name") apply { Await.ready(nameFuture, config.timeout seconds) }
 
     if (config.getMetadata) {
       import java.nio.file._
@@ -83,18 +90,23 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
           Source.fromFile(config.filterFilename).getLines.toSeq
         } else Seq()
       println("# entity filters to use: " + filters.size)
-      if (filters.size == 0) print("Accept all entities.")
+      if (filters.size == 0) println("Accept all entities." )
 
       println("Obtaining metadata...")
       val metadataFuture = async {
         val h = await(header)
-        val req = post(config) << RetrieveAllEntities(h).toString
+        val req = post(config) << RetrieveAllEntities(h, config.objects).toString
         await(Http(req OK as.xml.Elem))
       }
 
       metadataFuture onComplete {
         case Success(m) =>
           println("Obtained metadata for entities: ")
+
+          nonFatalCatch withApply { t =>
+            println(s"Unable to write metadata output to ${config.output}")
+          } apply Files.write(Paths.get(config.output), m.toString.getBytes)
+
           (m.child \\ "EntityMetadata").map { em: xml.Node =>
             //(em \\ "DisplayName" \\ "Label").text
             (em \\ "SchemaName").text
@@ -104,7 +116,8 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
           println("Message: " + ex.getMessage)
           logger.debug("Exception during processing", ex)
       }
-      catchTimeout apply { Await.ready(metadataFuture, config.timeout seconds) }
+      catchTimeout("metadata") apply { Await.ready(metadataFuture, config.timeout seconds) }
+      Thread.sleep(10000)
     }
 
     Http.shutdown

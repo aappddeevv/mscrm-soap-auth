@@ -24,6 +24,7 @@ libraryDependencies ++= Seq(
     ,"com.typesafe.scala-logging" %% "scala-logging" % "latest.release"
     , "commons-codec" % "commons-codec" % "latest.release"
     ,"org.scala-lang.modules" %% "scala-async" % "latest.release"
+    ,"com.lucidchart" %% "xtract" % "latest.release"
 )
 
 EclipseKeys.createSrc := EclipseCreateSrc.Default + EclipseCreateSrc.Resource
@@ -32,4 +33,12 @@ EclipseKeys.withSource := true
 
 packSettings
 
-packMain := Map("mscrmauth" -> "crm.program")
+packMain := Map("mscrm-soap-auth" -> "crm.program")
+
+fork in run := true
+
+javaOptions in run += "-Xmx4G"
+
+libraryDependencies += "com.lihaoyi" % "ammonite" % "0.7.4" % "test" cross CrossVersion.full
+
+initialCommands in (Test, console) := """ammonite.Main().run()"""
