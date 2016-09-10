@@ -25,6 +25,7 @@ libraryDependencies ++= Seq(
     , "commons-codec" % "commons-codec" % "latest.release"
     ,"org.scala-lang.modules" %% "scala-async" % "latest.release"
     ,"com.lucidchart" %% "xtract" % "latest.release"
+    ,"com.github.pathikrit" %% "better-files" % "latest.release"
 )
 
 EclipseKeys.createSrc := EclipseCreateSrc.Default + EclipseCreateSrc.Resource

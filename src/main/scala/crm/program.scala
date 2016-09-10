@@ -11,7 +11,7 @@ import scala.concurrent.duration._
 import scala.async.Async._
 import com.typesafe.scalalogging._
 import scala.util._
-import java.nio.file._
+import better.files._
 
 case class Config(
   help: Boolean = false,
@@ -80,15 +80,9 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
     catchTimeout("name") apply { Await.ready(nameFuture, config.timeout seconds) }
 
     if (config.getMetadata) {
-      import java.nio.file._
-      import io.Source
 
       // open filter filename if present
-      val p = Paths.get(config.filterFilename)
-      val filters =
-        if (Files.exists(p)) {
-          Source.fromFile(config.filterFilename).getLines.toSeq
-        } else Seq()
+      val filters = nonFatalCatch withApply { _ => Seq() } apply File(config.filterFilename).lines
       println("# entity filters to use: " + filters.size)
       if (filters.size == 0) println("Accept all entities." )
 
@@ -105,10 +99,9 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
 
           nonFatalCatch withApply { t =>
             println(s"Unable to write metadata output to ${config.output}")
-          } apply Files.write(Paths.get(config.output), m.toString.getBytes)
+          } apply File(config.output).printWriter(true).map(_.write(m.toString))
 
           (m.child \\ "EntityMetadata").map { em: xml.Node =>
-            //(em \\ "DisplayName" \\ "Label").text
             (em \\ "SchemaName").text
           }.filter(_.length > 0).sorted.foreach(println)
         case Failure(ex) =>

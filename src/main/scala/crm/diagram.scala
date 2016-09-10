@@ -11,12 +11,13 @@ import scala.concurrent.duration._
 import scala.async.Async._
 import com.typesafe.scalalogging._
 import scala.util._
-import java.nio.file._
 import xml.XML
 import com.lucidchart.open.xtract.{ XmlReader, __ }
 import com.lucidchart.open.xtract.XmlReader._
 import com.lucidchart.open.xtract._
 import play.api.libs.functional.syntax._
+import better.files._
+import scala.util.matching.Regex
 
 case class DiagramConfig(
   help: Boolean = false,
@@ -44,14 +45,14 @@ object diagram extends LazyLogging {
     head("diagram", "0.1.0")
     opt[String]("filterfile").valueName("<filename>").text("Input regexp filter, one filter per line. No filters means accept everything.")
       .action((x, c) => c.copy(filterFilename = x)).validate { filename =>
-        if (Files.exists(Paths.get(filename))) success
+        if (File(filename).exists) success
         else failure("No filter file $filename found.")
       }
     opt[String]('o', "output").valueName("<filename>").text("Output file for diagram.")
       .action((x, c) => c.copy(output = x))
     arg[String]("<file>").unbounded().optional().text("Input metadata in CRM XML format. This can be the full SOAP response from RetrieveAllEntities.")
       .action((x, c) => c.copy(input = x)).validate { filename =>
-        if (Files.exists(Paths.get(filename))) success
+        if (File(filename).exists) success
         else failure(s"No input file $filename found.")
       }
     opt[String]('e', "excludefilter").unbounded().valueName("<regex>").text("Regex used to identify which entites are excluded. Repeate option as needed. May need to be escaped or quoted on command line.")
@@ -74,7 +75,12 @@ object diagram extends LazyLogging {
 
     import CRMMetadata._
 
-    val xml = XML.loadFile(config.input)
+    val xml = nonFatalCatch withApply { ex =>
+      println(s"Unable to read input XML file: ${config.input}")
+      println(s"Error: ${ex.getMessage}")
+      System.exit(-1)
+      return
+    } apply { XML.loadFile(config.input) }
 
     val schema = XmlReader.of[CRMSchema].read(xml) match {
       case ParseFailure(errors) =>
@@ -90,9 +96,9 @@ object diagram extends LazyLogging {
 
     // Setp the filters to filter the entities that are processed, these are schema names.
     val _allowed = nonFatalCatch withApply { t => Seq() } apply {
-      io.Source.fromFile(config.filterFilename).getLines().map(pat => new scala.util.matching.Regex(pat.trim)).toSeq
-    } ++ config.filters.map(new scala.util.matching.Regex(_))
-    val _excludes = config.excludes.map(pat => new scala.util.matching.Regex(pat.trim)).toSeq
+      config.filterFilename.lines.map(pat => new Regex(pat.trim)).toSeq
+    } ++ config.filters.map(new Regex(_))
+    val _excludes = config.excludes.map(pat => new Regex(pat.trim)).toSeq
     val allowAll = _allowed.size == 0 && _excludes.size == 0
     if (allowAll) println("Allowing all entities for processing")
     else println(s"Using ${_allowed.size} entity schema name filter patterns for processing.")
@@ -116,9 +122,7 @@ object diagram extends LazyLogging {
     import collection.mutable.ListBuffer
     val edges = ListBuffer[crm.Edge]() // we need to post-process edgets :-(
     val nodes = ListBuffer[crm.Node]()
-    import java.io._
-    val output = new PrintWriter(Files.newBufferedWriter(Paths.get(config.output)))
-    nonFatalCatch andFinally { output.close } apply {
+    File(config.output).newPrintWriter(true).autoClosed.map { output =>
       output.println("graph { ")
       output.println("overlap=scale; splines=true;")
       entitiesToProcess.foreach { ent =>
@@ -162,8 +166,7 @@ object diagram extends LazyLogging {
     }
 
     println(s"Creating metadata dump file: ${config.metadataDumpFilename}")
-    val csv = new PrintWriter(Files.newBufferedWriter(Paths.get(config.metadataDumpFilename)))
-    nonFatalCatch andFinally { csv.close } apply {
+    config.metadataDumpFilename.toFile.newPrintWriter(true).autoClosed.map { csv =>
       entitiesToProcess.foreach { ent =>
         csv.println(s"${ent.schemaName}")
         ent.oneToMany.foreach { r => csv.println(s"OTM,${r}") }
@@ -230,7 +233,7 @@ object CRMMetadata {
     (__ \\ "ManyToOneRelationshipMetadata").read(seq[Relationship]) and
     (__ \\ "ManyToManyRelationshipMetadata").read(seq[Relationship]) and
     (__ \\ "AttributeMetadata").read(seq[Attribute]))(Entity.apply _)
-   
+
   /** Overall CRM schema. */
   case class CRMSchema(entities: Seq[Entity])
 
