@@ -9,7 +9,6 @@ import dispatch._, Defaults._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
-import com.typesafe.scalalogging._
 import scala.util._
 import xml.XML
 import com.lucidchart.open.xtract.{ XmlReader, __ }
@@ -18,6 +17,7 @@ import com.lucidchart.open.xtract._
 import play.api.libs.functional.syntax._
 import better.files._
 import scala.util.matching.Regex
+import org.log4s._
 
 case class DiagramConfig(
   help: Boolean = false,
@@ -38,8 +38,11 @@ case class Edge(start: String, stop: String, label: Option[String] = None,
 /**
  *  Small program to read CRM XML metadata and output a dot file (diagram).
  */
-object diagram extends LazyLogging {
+object diagram {
 
+  private[this] lazy val logger = getLogger
+  
+  
   val parser = new scopt.OptionParser[DiagramConfig]("diagram") {
     override def showUsageOnError = true
     head("diagram", "0.1.0")

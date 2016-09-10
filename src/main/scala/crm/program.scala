@@ -9,9 +9,9 @@ import dispatch._, Defaults._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
-import com.typesafe.scalalogging._
 import scala.util._
 import better.files._
+import org.log4s._
 
 case class Config(
   help: Boolean = false,
@@ -24,8 +24,10 @@ case class Config(
   objects: String = "Entity Relationships Attributes",
   output: String = "metadata.xml")
 
-object program extends CrmAuth with SoapHelpers with LazyLogging {
+object program extends CrmAuth with SoapHelpers {
 
+  private[this] lazy val logger = getLogger
+  
   val parser = new scopt.OptionParser[Config]("crmauth") {
     override def showUsageOnError = true
     head("crmauth", "0.1.0")
@@ -72,7 +74,7 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
       case Failure(ex) =>
         println("Exception obtaining name")
         println("Message: " + ex.getMessage)
-        logger.debug("Exception during processing", ex)
+        logger.debug(ex)("Exception during processing")
     }
 
     // End of world, wait for the response.
@@ -84,7 +86,7 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
       // open filter filename if present
       val filters = nonFatalCatch withApply { _ => Seq() } apply File(config.filterFilename).lines
       println("# entity filters to use: " + filters.size)
-      if (filters.size == 0) println("Accept all entities." )
+      if (filters.size == 0) println("Accept all entities.")
 
       println("Obtaining metadata...")
       val metadataFuture = async {
@@ -107,7 +109,7 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
         case Failure(ex) =>
           println("Exception obtaining metadata")
           println("Message: " + ex.getMessage)
-          logger.debug("Exception during processing", ex)
+          logger.debug(ex)("Exception during processing")
       }
       catchTimeout("metadata") apply { Await.ready(metadataFuture, config.timeout seconds) }
       Thread.sleep(10000)
@@ -186,8 +188,4 @@ object program extends CrmAuth with SoapHelpers with LazyLogging {
       }.sortBy(_._1).map(_._2).mkString(" ")
     }
   }
-
 }
-
-
-
