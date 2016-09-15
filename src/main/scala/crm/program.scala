@@ -84,7 +84,7 @@ object program extends CrmAuth with SoapHelpers {
     if (config.getMetadata) {
 
       // open filter filename if present
-      val filters = nonFatalCatch withApply { _ => Seq() } apply File(config.filterFilename).lines
+      val filters = nonFatalCatch withApply { _ => Seq() } apply config.filterFilename.toFile.lines
       println("# entity filters to use: " + filters.size)
       if (filters.size == 0) println("Accept all entities.")
 
@@ -101,7 +101,7 @@ object program extends CrmAuth with SoapHelpers {
 
           nonFatalCatch withApply { t =>
             println(s"Unable to write metadata output to ${config.output}")
-          } apply File(config.output).printWriter(true).map(_.write(m.toString))
+          } apply config.output.toFile.printWriter(true).map(_.write(m.toString))
 
           (m.child \\ "EntityMetadata").map { em: xml.Node =>
             (em \\ "SchemaName").text

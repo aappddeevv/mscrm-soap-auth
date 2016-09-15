@@ -17,7 +17,7 @@ import org.apache.commons.codec.binary.Base64;
 import org.w3c.dom._
 import org.xml.sax.SAXException;
 import dispatch._, Defaults._
-import com.typesafe.scalalogging._
+import org.log4s._
 
 /**
  * Authentication information for creating security headers.
@@ -25,7 +25,7 @@ import com.typesafe.scalalogging._
  */
 case class CrmAuthenticationHeader(Header: scala.xml.Elem, key: String, token1: String, token2: String, Expires: Date, url: String)
 
-trait CrmAuth extends SoapHelpers with LazyLogging {
+trait CrmAuth extends SoapHelpers {
 
   /**
    * Issue a CRM Online SOAP authentication request.
@@ -87,7 +87,7 @@ trait CrmAuth extends SoapHelpers with LazyLogging {
       val token1 = cipherElements(0).text
       val token2 = cipherElements(1).text
 
-      //val keyIdentiferElements = xml \\ "wsse:KeyIdentifier"      
+      //val keyIdentiferElements = xml \\ "wsse:KeyIdentifier"
       val keyIdentiferElements = xml \\ "KeyIdentifier"
       val keyIdentifer = keyIdentiferElements(0).text
 

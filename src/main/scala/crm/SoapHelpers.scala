@@ -4,7 +4,7 @@ import scala.util.control.Exception._
 import dispatch._, Defaults._
 import java.util.Date;
 
-trait SoapHelpers extends com.typesafe.scalalogging.LazyLogging {
+trait SoapHelpers  {
 
   /**
    * Handler for catching a future TimeoutException. Can be composed with other
@@ -54,8 +54,8 @@ trait SoapHelpers extends com.typesafe.scalalogging.LazyLogging {
     val newDate = new Date(currentTime + (minutes * ONE_MINUTE_IN_MILLIS));
     newDate
   }
-  
+
   /** Generate a message id SOAP element. Namespace a. */
-  def messageIdEl =  <a:MessageID>urn:uuid:{ java.util.UUID.randomUUID() }</a:MessageID>      
+  def messageIdEl =  <a:MessageID>urn:uuid:{ java.util.UUID.randomUUID() }</a:MessageID>
 
 }
