@@ -18,6 +18,11 @@ import org.w3c.dom._
 import org.xml.sax.SAXException;
 import dispatch._, Defaults._
 import org.log4s._
+import com.lucidchart.open.xtract._
+import com.lucidchart.open.xtract.{ XmlReader, __ }
+import com.lucidchart.open.xtract.XmlReader._
+import com.lucidchart.open.xtract._
+import play.api.libs.functional.syntax._
 
 /**
  * Authentication information for creating security headers.
@@ -121,7 +126,7 @@ trait CrmAuth extends SoapHelpers {
       <a:ReplyTo>
         <a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address>
       </a:ReplyTo>
-      <a:To s:mustUnderstand="1">{endpoint(toUrl)}</a:To>
+      <a:To s:mustUnderstand="1">{ endpoint(toUrl) }</a:To>
       { CreateSOAPSecurityHeader(keyIdentifier, token1, token2) }
     </s:Header>
   }
@@ -168,6 +173,30 @@ trait CrmAuth extends SoapHelpers {
     </s:Envelope>
 
   /**
+   * Create a discovery request, which is different than a request to a a specific organization.
+   *  @param auth Authentication header to the discovery service, not authentication to the organization service.
+   *  @param headers Headers to place into the request. This should *not* have the <Header> tag.
+   *  @param body Body including the <body> tag.
+   *  @param url URL of the discovery service not a specific org.
+   */
+  def CreateDiscoveryRequest(auth: CrmAuthenticationHeader, headers: Seq[scala.xml.Elem] = Nil, body: Seq[scala.xml.Elem] = Nil, discoveryUrl: String) =
+    <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+      <s:Header>
+        <a:Action s:mustUnderstand="1">http://schemas.microsoft.com/xrm/2011/Contracts/Discovery/IDiscoveryService/Execute</a:Action>
+        { messageIdEl }
+        <a:To s:mustUnderstand="1">{ discoveryUrl }</a:To>
+        <a:ReplyTo>
+          <a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address>
+        </a:ReplyTo>
+        { CreateSOAPSecurityHeader(auth.key, auth.token1, auth.token2) }
+        { headers }
+      </s:Header>
+      <s:Body>
+        { body }
+      </s:Body>
+    </s:Envelope>
+
+  /**
    * Gets the correct URN Address based on the Online region.
    *
    * @return String URN Address.
@@ -188,6 +217,20 @@ trait CrmAuth extends SoapHelpers {
 
     regionmap.get(urlx.getHost) getOrElse default
   }
+
+  /**
+   * Online O365 discovery URLs only.
+   */
+  val locationsToDiscoveryURL = collection.Map(
+    "NA" -> "https://disco.crm.dynamics.com/XRMServices/2011/Discovery.svc",
+    "NA2" -> "https://disco.crm9.dynamics.com/XRMServices/2011/Discovery.svc",
+    "EMEA" -> "https://disco.crm4.dynamics.com/XRMServices/2011/Discovery.svc",
+    "APAC" -> "https://disco.crm5.dynamics.com/XRMServices/2011/Discovery.svc",
+    "Oceania" -> "https://disco.crm6.dynamics.com/XRMServices/2011/Discovery.svc",
+    "JPN" -> "https://disco.crm7.dynamics.com/XRMServices/2011/Discovery.svc",
+    "SA" -> "https://disco.crm2.dynamics.com/XRMServices/2011/Discovery.svc",
+    "IND" -> "https://disco.crm8.dynamics.com/XRMServices/2011/Discovery.svc",
+    "CN" -> "https://disco.crm3.dynamics.com/XRMServices/2011/Discovery.svc")
 
   val NSEnvelope = "http://schemas.xmlsoap.org/soap/envelope/"
   val NSContracts = "http://schemas.microsoft.com/xrm/2011/Contracts"
@@ -250,4 +293,31 @@ trait CrmAuth extends SoapHelpers {
       </s:Body>
     </s:Envelope>
 
+  import collection._
+
+  case class Endpoint(name: String, url: String)
+
+  implicit val readEndpoint: XmlReader[Endpoint] = (
+    (__ \ "key").read[String] and
+    (__ \ "value").read[String])(Endpoint.apply _)
+
+  case class OrganizationDetail(friendlyName: String,
+    guid: String,
+    version: String,
+    state: String,
+    uniqueName: String,
+    urlName: String,
+    endpoints: Seq[Endpoint] = Nil)
+
+  implicit val readOrganizationDetail: XmlReader[OrganizationDetail] = (
+    (__ \ "FriendlyName").read[String] and
+    (__ \ "OrganizationId").read[String] and
+    (__ \ "OrganizationVersion").read[String] and
+    (__ \ "State").read[String] and
+    (__ \ "UniqueName").read[String] and
+    (__ \ "UrlName").read[String] and
+    (__ \ "Endpoints" \ "KeyValuePairOfEndpointTypestringztYlk6OT").read(seq[Endpoint]))(OrganizationDetail.apply _)
+
+    implicit val readSeqOrganiatonDetail: XmlReader[Seq[OrganizationDetail]]= (__ \\ "OrganizationDetail").read(seq[OrganizationDetail])
+    
 }

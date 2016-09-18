@@ -21,7 +21,7 @@ libraryDependencies ++= Seq(
     ,"ch.qos.logback" % "logback-classic" % "latest.release"
     ,"ch.qos.logback" % "logback-core" % "latest.release"
     ,"net.databinder.dispatch" %% "dispatch-core" % "latest.release"
-    , "commons-codec" % "commons-codec" % "latest.release"
+    ,"commons-codec" % "commons-codec" % "latest.release"
     ,"org.scala-lang.modules" %% "scala-async" % "latest.release"
     ,"com.lucidchart" %% "xtract" % "latest.release"
     ,"org.log4s" %% "log4s" % "latest.release"

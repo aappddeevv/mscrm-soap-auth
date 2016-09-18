@@ -42,14 +42,14 @@ object diagram {
 
   private[this] lazy val logger = getLogger
   
-  
+  val defaultConfig = DiagramConfig()
   val parser = new scopt.OptionParser[DiagramConfig]("diagram") {
     override def showUsageOnError = true
     head("diagram", "0.1.0")
     opt[String]("filterfile").valueName("<filename>").text("Input regexp filter, one filter per line. No filters means accept everything.")
       .action((x, c) => c.copy(filterFilename = x)).validate { filename =>
         if (File(filename).exists) success
-        else failure("No filter file $filename found.")
+        else failure(s"No filter file ${defaultConfig.filterFilename} found.")
       }
     opt[String]('o', "output").valueName("<filename>").text("Output file for diagram.")
       .action((x, c) => c.copy(output = x))
@@ -71,7 +71,7 @@ object diagram {
 
   def main(args: Array[String]): Unit = {
 
-    val config = parser.parse(args, DiagramConfig()) match {
+    val config = parser.parse(args, defaultConfig) match {
       case Some(c) => c
       case None => return
     }
