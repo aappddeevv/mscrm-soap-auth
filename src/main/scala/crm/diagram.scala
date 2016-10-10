@@ -39,9 +39,11 @@ case class Edge(start: String, stop: String, label: Option[String] = None,
  *  Small program to read CRM XML metadata and output a dot file (diagram).
  */
 object diagram {
+  import sdk._
+  import sdk.metadata._
 
   private[this] lazy val logger = getLogger
-  
+
   val defaultConfig = DiagramConfig()
   val parser = new scopt.OptionParser[DiagramConfig]("diagram") {
     override def showUsageOnError = true
@@ -76,7 +78,8 @@ object diagram {
       case None => return
     }
 
-    import CRMMetadata._
+    import metadata._
+    import readers._
 
     val xml = nonFatalCatch withApply { ex =>
       println(s"Unable to read input XML file: ${config.input}")
@@ -181,64 +184,3 @@ object diagram {
   }
 }
 
-object CRMMetadata {
-
-  import collection._
-
-  /**
-   * Attribute metadata.
-   */
-  case class Attribute(schemaName: String,
-    logicalName: String,
-    attributeType: String,
-    columnNumber: Int)
-
-  implicit val readAttribute: XmlReader[Attribute] = (
-    (__ \ "SchemaName").read[String] and
-    (__ \ "LogicalName").read[String] and
-    (__ \ "AttributeType").read[String] and
-    (__ \ "ColumnNumber").read[Int])(Attribute.apply _)
-
-  /**
-   * The referenced/referencing names are logical names.
-   */
-  case class Relationship(schemaName: String,
-    referencedAttribute: String,
-    referencedEntity: String,
-    referencingAttribute: String,
-    referencedEntityNavigationPropertyName: String,
-    referencingEntity: String,
-    referencingEntityNavigationPropertyName: String)
-
-  implicit val readRelationship: XmlReader[Relationship] = (
-    (__ \ "SchemaName").read[String] and
-    (__ \ "ReferencedAttribute").read[String].default("") and
-    (__ \ "ReferencedEntity").read[String].default("") and
-    (__ \ "ReferencingAttribute").read[String].default("") and
-    (__ \ "ReferencedEntityNavigationPropertyName").read[String].default("") and
-    (__ \ "ReferencingEntity").read[String].default("") and
-    (__ \ "ReferencingEntityNavigationPropertyName").read[String].default(""))(Relationship.apply _)
-
-  /**
-   * Entity metadata.
-   */
-  case class Entity(schemaName: String,
-    logicalName: String,
-    oneToMany: Seq[Relationship],
-    manyToOne: Seq[Relationship],
-    manyToMany: Seq[Relationship],
-    attributes: Seq[Attribute])
-
-  implicit val readEntity: XmlReader[Entity] = (
-    (__ \ "SchemaName").read[String] and
-    (__ \ "LogicalName").read[String] and
-    (__ \\ "OneToManyRelationshipMetadata").read(seq[Relationship]) and
-    (__ \\ "ManyToOneRelationshipMetadata").read(seq[Relationship]) and
-    (__ \\ "ManyToManyRelationshipMetadata").read(seq[Relationship]) and
-    (__ \\ "AttributeMetadata").read(seq[Attribute]))(Entity.apply _)
-
-  /** Overall CRM schema. */
-  case class CRMSchema(entities: Seq[Entity])
-
-  implicit val schemaReader: XmlReader[CRMSchema] = (__ \\ "EntityMetadata").read(seq[Entity]).map(CRMSchema(_))
-}
