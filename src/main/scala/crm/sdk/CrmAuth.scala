@@ -39,7 +39,7 @@ case class CrmAuthenticationHeader(Header: scala.xml.Elem = null, key: String = 
 trait CrmAuth {
 
   import SoapHelpers._
-  
+
   private[this] lazy val logger = getLogger
 
   /**
@@ -66,10 +66,10 @@ trait CrmAuth {
    *            The Url of the CRM Online organization
    *            (https://org.crm.dynamics.com).).
    */
-  def GetHeaderOnline(username: String, password: String, url: String, http: HttpExecutor = Http): Future[CrmAuthenticationHeader] = {
+  def GetHeaderOnline(username: String, password: String, url: String, http: HttpExecutor = Http, leaseTime: Int = 120): Future[CrmAuthenticationHeader] = {
 
     val urnAddress = GetUrnOnline(url)
-    val ts = timestamp()
+    val ts = timestamp(leaseTime)
 
     val xml = <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
                 <s:Header>
@@ -264,7 +264,7 @@ trait CrmAuth {
   val NSServices = "http://schemas.microsoft.com/xrm/2011/Contracts/Services"
   val NSSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance"
   val NSSchemaX = "http://www.w3.org/2001/XMLSchema"
-  
+
   val NSCollectionsGeneric = "http://schemas.datacontract.org/2004/07/System.Collections.Generic"
   val NSMetadata = "http://schemas.microsoft.com/xrm/2011/Metadata"
 
@@ -336,8 +336,9 @@ trait CrmAuth {
       </request>
     </Execute>
 
-  /** Retrieve multiple objects.
-   *  @param multipleRequest Element contain the multiple request. It should not have the RetrieveMultiple element wrapper.
+  /**
+   * Retrieve multiple objects.
+   *  @param multipleRequest Element containing the multiple request. This should the content inside the RetrieveMultiple element.
    *  @param auth Org data services auth.
    */
   def retrieveMultiple(auth: CrmAuthenticationHeader, multipleRequest: xml.Elem) = //ename: String, page: Int, cookie: Option[String], enameId: Option[String] = None) =
@@ -358,7 +359,51 @@ trait CrmAuth {
       </s:Body>
     </s:Envelope>
 
-  //object default
+  /**
+   * Get a page of entity results wrapped in a Task. Passing in pageInfo = None returns None
+   * otherwise it returns `Option[(Envelope, Option[PagingInfo])]`. The
+   * result type can be interpreted as the "result" and additional information to
+   * perform another fetch, if needed, to obtain the next page of results in the multiple request.
+   * Returned PagingInfo is suitable for a subsequent calls to this function as the
+   * page number and cookie have been updated.
+   *
+   * The final XML request envelope is debug logged.
+   */
+  def getMultipleRequestPage[T <: Envelope](http: HttpExecutor, xmlBody: scala.xml.Elem, orgAuth: CrmAuthenticationHeader, pageInfo: Option[PagingInfo])(
+    implicit ec: ExecutionContext, strategy: Strategy, reader: XmlReader[T]): Task[Option[(Envelope, Option[PagingInfo])]] = Task.fromFuture {
+    import responseReaders._
+    pageInfo match {
+      case Some(pi) =>
+        val qxml = retrieveMultiple(orgAuth, xmlBody)
+        logger.debug("Query XML: " + qxml.toString)
+        val headers = Map("SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
+        val req = createPost(orgAuth.url) <:< headers << qxml.toString
+        logger.debug("Query entity request: " + req.toRequest)
+
+        http(req)(ec).map { response =>
+          logger.debug(s"Response: ${show(response)}")
+
+          val body = response.getResponseBody
+          val xmlBody = scala.xml.XML.loadString(body)
+          val crmResponse = processXml(response)(reader, logger)
+
+          crmResponse match {
+            case Xor.Right(Envelope(_, Fault(n, msg))) =>
+              throw new RuntimeException(s"Server returned an error: $msg ($n)")
+            case Xor.Left(err) =>
+              throw new RuntimeException(toUserMessage(err))
+            case Xor.Right(e@Envelope(_, ec@EntityCollectionResult(name, entities, total, limit, more, cookieOpt))) =>
+              logger.trace(ec.toString)
+              logger.info(s"Iteration: ename=$name, totalRecordCount=$total, limitExceeded=>$limit, moreRecords=$more, cookie=$cookieOpt")
+              val newPagingInfo = cookieOpt.map(c => pi.copy(page = pi.page + 1, cookie = cookieOpt))
+              Some((e, newPagingInfo))
+          }
+        }
+      case None =>
+        logger.debug("Stopping iteration. No paging information.")
+        Future.successful(None)
+    }
+  }(strategy, ec)
 
   /**
    * Return organization detail using app default error handling. If an error occurs,
@@ -378,7 +423,7 @@ trait CrmAuth {
         case Xor.Left(UnexpectedStatus(_, code, _)) => Xor.left("Unexpected response from server.")
         case Xor.Left(UnknonwnResponseError(_, msg, _)) => Xor.left(s"Unknown error: $msg")
         case Xor.Left(XmlParseError(_, _, _)) => Xor.left("Unable to interpret response from server.")
-        case Xor.Left(CrmError(_,_,_)) => Xor.left("Server returned a fault.")
+        case Xor.Left(CrmError(_, _, _)) => Xor.left("Server returned a fault.")
       }
     }
   }
@@ -407,7 +452,7 @@ trait CrmAuth {
         case Xor.Left(UnexpectedStatus(_, code, _)) => Xor.left("Unexpected response from server.")
         case Xor.Left(UnknonwnResponseError(_, msg, _)) => Xor.left(s"Unknown error: $msg")
         case Xor.Left(XmlParseError(_, _, _)) => Xor.left("Unable to interpret response from server.")
-        case Xor.Left(CrmError(_,_,_)) => Xor.left("Server returned a fault.")
+        case Xor.Left(CrmError(_, _, _)) => Xor.left("Server returned a fault.")
       }
     }
   }
@@ -474,7 +519,7 @@ trait CrmAuth {
     //      }
     //    }
   }
-    
+
   import scala.concurrent._
 
   /**
@@ -488,13 +533,14 @@ trait CrmAuth {
    *  @param username Username
    *  @param password Password
    *  @param regionAbbrev Abbreviation for the region.
+   *  @param leaseTimee Lease time on auth in minutes.
    *  @return Client to use in calls. Includes authentication results.
    */
   def discoveryAuth(http: HttpExecutor, username: String,
-    password: String, regionAbbrev: String = "NA", timeout: Int = 120)(implicit ec: ExecutionContext): Future[Xor[String, CrmAuthenticationHeader]] = {
+    password: String, regionAbbrev: String = "NA", leaseTime: Int = 120)(implicit ec: ExecutionContext): Future[Xor[String, CrmAuthenticationHeader]] = {
     locationsToDiscoveryURL.get(regionAbbrev) match {
       case Some(discoveryUrl) =>
-        GetHeaderOnline(username, password, discoveryUrl, http).map(Xor.right(_))
+        GetHeaderOnline(username, password, discoveryUrl, http, leaseTime).map(Xor.right(_))
       case _ =>
         Future.successful(Xor.left(s"Unrecognized region abbrevation $regionAbbrev"))
     }
@@ -503,23 +549,23 @@ trait CrmAuth {
   /**
    * Return an org services auth and org services url given user information and
    * a web app URL and region abbreviation.
-   *
    * @param auth Discovery auth.
+   * @param leaseTime Lease time of auth header in minutes.
    */
-  def orgServicesAuth(http: HttpExecutor, auth: CrmAuthenticationHeader, username: String, password: String, webAppUrl: String, regionAbbrev: String = "NA") = {
+  def orgServicesAuth(http: HttpExecutor, auth: CrmAuthenticationHeader, username: String, password: String, webAppUrl: String, regionAbbrev: String = "NA", leaseTime: Int = 120) = {
     locationsToDiscoveryURL.get(regionAbbrev) match {
       case Some(discoveryUrl) =>
         orgServicesUrl(http, auth, webAppUrl) flatMap {
           _ match {
             case Xor.Left(err) => Future.successful(Xor.left(err))
-            case Xor.Right(url) => GetHeaderOnline(username, password, url, http).map(Xor.right(_))
+            case Xor.Right(url) => GetHeaderOnline(username, password, url, http, leaseTime).map(Xor.right(_))
           }
         }
       case _ =>
         Future.successful(Xor.left(s"Unrecognized region abbreviation $regionAbbrev"))
     }
   }
-  
+
   import responseReaders._
 
   /**
@@ -544,6 +590,23 @@ trait CrmAuth {
     }
   }
 
+  /**
+   * Produce an org services auth suitable for SOAP requests. 
+   * 
+   * The discovery auth is thrown away so this is a very expensive call to make.
+   *
+   * @param leaseTime Lease time of auth header in minutes.
+   */
+  def orgServicesAuthF(http: HttpExecutor, username: String, password: String, webAppUrl: String, region: String, leaseTime: Int = 120)(implicit ec: ExecutionContext): Future[CrmAuthenticationHeader] = {
+    discoveryAuth(http, username, password, region).flatMap { discovery =>
+      discovery match {
+        case Xor.Right(discoveryAuth) => orgServicesAuth(http, discoveryAuth, username, password, webAppUrl, region, leaseTime).flatMap {
+          _ fold (err => throw new RuntimeException(err), auth => Future.successful(auth))
+        }
+        case Xor.Left(err) => throw new RuntimeException(err)
+      }
+    }
+  }
 
 }
 

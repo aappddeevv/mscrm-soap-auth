@@ -27,6 +27,16 @@ trait SoapHelpers {
   def client(config: Config) = Http.configure { builder =>
     builder.setRequestTimeoutInMs(config.timeout * 1000)
     builder.setFollowRedirects(true)
+    builder.setAllowPoolingConnection(true)
+    builder.setCompressionEnabled(true)
+    builder
+  }
+
+  def client(timeoutInSeconds: Int) = Http.configure { builder =>
+    builder.setRequestTimeoutInMs(timeoutInSeconds * 1000)
+    builder.setFollowRedirects(true)
+    builder.setAllowPoolingConnection(true)
+    builder.setCompressionEnabled(true)
     builder
   }
 
@@ -339,10 +349,19 @@ case class Fault(
 
 case class PagingInfo(count: Int = 0, page: Int = 1, cookie: Option[String] = None,
   returnTotalRecordCount: Boolean = false)
+object EmptyPagingInfo extends PagingInfo()
 sealed trait ColumnSet
 case class AllColumns() extends ColumnSet
 case class Columns(names: Seq[String]) extends ColumnSet
-case class QueryExpression(entityName: String, columns: ColumnSet = AllColumns(), pageInfo: PagingInfo = PagingInfo())
+
+object ColumnSet {
+  def apply(cname: String) = Columns(Seq(cname))
+  def apply(cnames: String*) = Columns(cnames)
+  val all = AllColumns()
+}
+
+case class QueryExpression(entityName: String, columns: ColumnSet = AllColumns(),
+  pageInfo: PagingInfo = PagingInfo(), lock: Boolean = false)
 
 case class Endpoint(name: String, url: String)
 
@@ -463,7 +482,7 @@ object responseReaders {
         collection.immutable.HashMap[String, String]() ++ v
       })(Entity.apply _)
 
-  implicit val ecrReader: XmlReader[EntityCollectionResult] =
+  implicit val entityCollectionResultReader: XmlReader[EntityCollectionResult] =
     ((__ \ "EntityName").read[String] and
       (__ \ "Entities" \\ "Entity").read(seq[Entity]).default(Nil) and
       (__ \ "TotalRecordCount").read[Int].filter(_ >= 0).optional and
@@ -506,11 +525,14 @@ object responseReaders {
 
   implicit val readSeqOrganizationDetail: XmlReader[Seq[OrganizationDetail]] = (__ \\ "OrganizationDetail").read(seq[OrganizationDetail])
 
+  /**
+   * Reader that reads a Fault or the results of a RetrieveMultipleRequest.
+   */
   val retrieveMultipleRequestReader =
     (responseHeaderReader and
       (body andThen (
         (fault andThen detail andThen organizationServiceFault andThen faultReader) or
-        (retrieveMultipleResponse andThen retrieveMultipleResult andThen ecrReader))))(Envelope.apply _)
+        (retrieveMultipleResponse andThen retrieveMultipleResult andThen entityCollectionResultReader))))(Envelope.apply _)
 
 }
   

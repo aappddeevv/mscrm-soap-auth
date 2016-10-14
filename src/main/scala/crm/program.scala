@@ -4,7 +4,7 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._, Defaults._
+import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -21,6 +21,8 @@ import fs2._
 import scala.concurrent.ExecutionContext
 
 case class Config(
+  leaseTime: Int = 120, // in minutes
+  leaseTimeRenewalFraction: Double = 0.9, // don't even ask
   help: Boolean = false,
   url: String = "", // web app url
   servicesUrl: String = "",
@@ -41,12 +43,20 @@ case class Config(
   queryFilters: Seq[String] = Seq(),
   dump: Dump = Dump(),
   entityCommand: String = "runCommands",
-  commandFile: String = "commands.json")
+  commandFile: String = "commands.json",
+  concurrency: Int = 4)
 
 case class Dump(entity: String = "",
   outputFilename: String = "",
   header: Boolean = false,
-  batchSize: Int = 0)
+  batchSize: Int = 0,
+  attributeList: Option[Seq[String]] = None,
+  attributeListFilename: Option[String] = None,
+  statusFrequency: Int = 1000,
+  attributeSeparator: String = ",",
+  recordSeparator: String = "\n",
+  recordProcessor: fs2.Pipe[Task, (sdk.Entity, Int), (sdk.Entity, Int)] = fs2.pipe.id,
+  toOutputProcessor: fs2.Pipe[Task, sdk.Entity, String] = StreamHelpers.defaultMakeOutputRow)
 
 object program extends sdk.CrmAuth with sdk.SoapHelpers {
 
@@ -73,6 +83,10 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
       .action((x, c) => c.copy(password = x))
     opt[Int]('t', "timeout").valueName("<number>").text(s"Timeout in seconds for each request. Default is ${defaultConfig.timeout}")
       .action((x, c) => c.copy(timeout = x))
+    opt[Int]("auth-lease-time").text(s"Auth lease time in minutes. Default is ${defaultConfig.leaseTime}")
+      .action((x, c) => c.copy(leaseTime = x))
+    opt[Double]("renewal-quantum").text(s"Renewal fraction of leaseTime. Default is ${defaultConfig.leaseTimeRenewalFraction}")
+      .action((x, c) => c.copy(leaseTimeRenewalFraction = x))
 
     help("help").text("Show help")
     note("")
@@ -153,9 +167,21 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
           action((x, c) => c.copy(dump = c.dump.copy(outputFilename = x))),
         opt[Unit]("header").text("Add a header to the output. Default is no header.").
           action((x, c) => c.copy(dump = c.dump.copy(header = true))),
+        opt[Int]("statusfrequency").text("Report a status every n records.").
+          action((x, c) => c.copy(dump = c.dump.copy(statusFrequency = x))),
         opt[Int]("batchsize").valueName("<batch size as int>").text("Number of records to retrieve for each server call.").
-          action((x, c) => c.copy(dump = c.dump.copy(batchSize = x))))
-    note("")
+          action((x, c) => c.copy(dump = c.dump.copy(batchSize = x))),
+        opt[String]("attribute-file").text("File of attributes, one per line.").
+          action((x, c) => c.copy(dump = c.dump.copy(attributeListFilename = Some(x)))),
+        opt[Int]("concurrency").text("Concurrency factor.").
+          validate(con =>
+            if (con < 1 || con > 32) failure("Concurrency must be between 1 and 32")
+            else success).
+          action((x, c) => c.copy(concurrency = x)),
+        opt[String]("attributes").text("Comma separate list of attributes to dump.").
+          action((x, c) =>
+            c.copy(dump = c.dump.copy(attributeList = Some(x.split(","))))))
+    note("Attribute file content and attributes specified in --attributes are merged.")
 
     cmd("test").action((_, c) => c.copy(mode = "test")).text("Run some tests.").
       children(
@@ -250,6 +276,8 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
    */
   def test(config: Config): Unit = {
 
+    import Defaults._
+
     println("Get discovery auth and URL")
     val f1 = discoveryAuth(Http, config.username, config.password, config.region).
       andThen { result =>
@@ -337,255 +365,177 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
    * https://msdn.microsoft.com/en-us/library/gg328300.aspx
    */
   def query(config: Config): Unit = {
+
+    /** Collect entities out of the envelope. */
+    val toEntities: Pipe[Task, Envelope, Seq[Entity]] = pipe.collect {
+      _ match {
+        case Envelope(_, EntityCollectionResult(_, entities, _, _, _, _)) => entities
+      }
+    }
+
+    /** Acquire an http client inside an effect (a task). */
+    def acquire = Task.delay(client(config.timeout))
+
+    /** Return an effect that shutdown an http client. */
+    def release = (client: HttpExecutor) => Task.delay(client.shutdown)
+
     config.queryType match {
 
       case "dump" =>
         val dump = config.dump
         val entity = config.dump.entity
         val outputFile = if (config.dump.outputFilename.isEmpty) s"$entity.csv" else config.dump.outputFilename
-        println(s"Dump all retrievable entity attributes for entity ${entity} to file ${outputFile}")
+        println(s"Dump retrievable entity attributes for entity ${entity} to file ${outputFile}")
 
         import crm.sdk.metadata._
         import crm.sdk.metadata.readers._
         import crm.sdk._
         import responseReaders._
-        val ec = scala.concurrent.ExecutionContext.Implicits.global
+        import CrmXmlWriter._
+        import fs2.async._
+        import fs2.async.immutable._
+        import java.util.concurrent.Executors
+
+        implicit val ec = scala.concurrent.ExecutionContext.fromExecutor(Executors.newWorkStealingPool(config.concurrency + 2))
         implicit val strategy = Strategy.fromExecutionContext(ec)
+        implicit val reader = retrieveMultipleRequestReader
+        implicit val sheduler = Scheduler.fromFixedDaemonPool(2, "auth-getter")
 
         /**
-         * Get a page of entity results wrapped in a Task. Passing in pageInfo = None returns None
-         * otherwise it returns either an optional tuple of (Envelope, (auth, pageInfoOpt)).
-         * Returned PagingInfo is suitable for a subsequent calls to this function.
+         * Ensure attributes are present and return a new Entity.
+         *  Invalid column names in `ensure` are ignored. By default,
+         *  any columns that are not in the `Entity` but are
+         *  in `ensure` are set to an empty value. This ensures that
+         *  the column is present even though it may not have been retrieved
+         *  from the server or the server did not send it.
          *
-         * TODO: Probably could convert this to use the state monad.
+         *  @param ensure List of attributes to ensure are present in the `Entity`.
          */
-        def getPage(entity: String, columns: ColumnSet, orgAuth: CrmAuthenticationHeader, pageInfo: Option[PagingInfo]): Task[Option[(Envelope, (CrmAuthenticationHeader, Option[PagingInfo]))]] = Task.fromFuture {
-          pageInfo match {
-            case Some(pi) =>
-              import CrmXmlWriter._
-              logger.info(s"Issuing query expression with page info: $pi")
-              val q = QueryExpression(entity, columns = columns, pageInfo = pi)
-              val xml = CrmXmlWriter.of[QueryExpression].write(q)
-
-              val qxml = retrieveMultiple(orgAuth, xml.asInstanceOf[scala.xml.Elem])
-              logger.debug("Query XML: " + qxml.toString)
-              val headers = Map("SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
-              val req = createPost(orgAuth.url) <:< headers << qxml.toString
-              logger.debug("Query entity request: " + req.toRequest)
-
-              Http(req).map { response =>
-                logger.debug(s"Response: ${show(response)}")
-
-                val body = response.getResponseBody
-                val xmlBody = scala.xml.XML.loadString(body)
-                val crmResponse = processXml(response)(retrieveMultipleRequestReader, logger)
-
-                crmResponse match {
-                  case Xor.Right(Envelope(_, Fault(n, msg))) =>
-                    throw new RuntimeException(s"Server returned an error: $msg ($n)")
-                  case Xor.Left(err) =>
-                    throw new RuntimeException(toUserMessage(err))
-                  case Xor.Right(e@Envelope(_, ec@EntityCollectionResult(name, entities, total, limit, more, cookieOpt))) =>
-                    logger.trace(ec.toString)
-                    logger.info(s"Iteration: ename=$name, totalRecordCount=$total, limitExceeded=>$limit, moreRecords=$more, cookie=$cookieOpt")
-                    val newPagingInfo = cookieOpt.map(c => pi.copy(page = pi.page + 1, cookie = cookieOpt))
-                    Some((e, (orgAuth, newPagingInfo)))
-                }
-              }
-            case None =>
-              logger.debug("Stopping iteration. No paging information.")
-              Future.successful(None)
-          }
-        }
-
-        /** Create a stream of SOAP envelopes that are the result of a request to the server. */
-        def envelopes(orgAuth: CrmAuthenticationHeader, columns: ColumnSet) =
-          Stream.unfoldEval((orgAuth, Option(PagingInfo(page = 1, count = config.dump.batchSize)))) { t =>
-            getPage(entity, columns, t._1, t._2)
-          }
-
-        /** Collect entities out of the envelope. */
-        val toEntities: Pipe[Task, Envelope, Seq[Entity]] = pipe.collect {
-          _ match {
-            case Envelope(_, EntityCollectionResult(_, entities, _, _, _, _)) => entities
-          }
-        }
-
-        /** Fill in missing attributes and return a new Entity. */
-        def fillInMissingAttributes(meta: EntityDescription, adds: Set[String]): Pipe[Task, sdk.Entity, sdk.Entity] = pipe.lift { ent: sdk.Entity =>
-          val merged = augment(ent.attributes, adds, meta)
+        def fillInMissingAttributes(meta: EntityDescription, ensure: Set[String]): Pipe[Task, sdk.Entity, sdk.Entity] = pipe.lift { ent: sdk.Entity =>
+          val merged = augment(ent.attributes, ensure, meta)
           ent.copy(attributes = merged)
         }
 
-        val makeOutputRow: Pipe[Task, sdk.Entity, String] = pipe.lift { ent =>
-          import org.apache.commons.lang3.StringEscapeUtils._
-          val keys = ent.attributes.keys.toList.sorted
-          keys.map(ent.attributes(_).text).map(escapeCsv(_)).mkString(",") + "\n"
+        import StreamHelpers._
+
+        /** Convenience function to get the auth. */
+        def orgAuthF = {
+          logger.info("Renewing org auth.")
+          orgServicesAuthF(Http, config.username, config.password, config.url, config.region, config.leaseTime)
         }
 
-        val output = discoveryAuth(Http, config.username, config.password, config.region).flatMap { discovery =>
-          discovery match {
-            case Xor.Right(discoveryAuth) =>
-              val fut = orgServicesAuth(Http, discoveryAuth, config.username, config.password, config.url, config.region).flatMap { services =>
-                services match {
-                  case Xor.Right(orgAuth) =>
-                    (entityMetadataFromCache(config.url) recoverWith
-                      { case _ => requestEntityMetadata(Http, orgAuth, Some(config.url)) }).flatMap {
-                        _ match {
-                          case Xor.Right(schema) =>
+        /** Stream of valid auths every `d` minutes. */
+        val auths =
+          time.awakeEvery[Task]((config.leaseTimeRenewalFraction * config.leaseTime).minutes).evalMap { _ =>
+            Task.fromFuture(orgAuthF)
+          }
 
-                            val entityDesc = findEntity(entity, schema).
-                              getOrElse(throw new RuntimeException(s"Unable to find metadata for entity $entity"))                              
-                            entityDesc.retrievableAttributes.foreach(a => logger.info(s"Attr: $a"))
-                            
-                            val n = 1000 // artificial limit
-                            val primaryId = sdk.metadata.primaryId(entity, schema)
-                            val cols = entityDesc.retrievableAttributes.take(n).map(_.logicalName)
-
-                            val colSet = Columns(cols)
-                            logger.info(s"Columns to retrieve: $colSet")
-
-                            val rows = envelopes(orgAuth, colSet).
-                              through(toEntities).
-                              flatMap { seq => Stream.chunk(Chunk.seq(seq)) }.
-                              through(fillInMissingAttributes(entityDesc, cols.toSet)).
-                              through(makeOutputRow)
-
-                            val header: Stream[Task, String] =
-                              if (config.dump.header) {
-                                val header = cols.toList.sorted.
-                                  map(org.apache.commons.lang3.StringEscapeUtils.escapeCsv(_)).
-                                  mkString(",") + "\n"
-                                Stream.emit(header)
-                              } else Stream.empty
-
-                            val result = (header ++ rows).
-                              through(text.utf8Encode).
-                              to(fs2.io.file.writeAllAsync[Task](java.nio.file.Paths.get(outputFile))).
-                              run.unsafeAttemptRun
-
-                            val fut2 = result match {
-                              case Right(_) =>
-                                Future.successful("")
-                              case Left(err) =>
-                                Future.successful(err.getMessage)
-                            }                              
-                            fut2
-                            
-                          case Xor.Left(error) =>
-                            Future.successful(s"Error during processing: $error}")
-                        }
-                      }
-                  case Xor.Left(err) => Future.successful(err)
-                }
-              }
-              fut
-            case Xor.Left(err) => Future.successful(err)
+        /** Create a stream of SOAP envelopes that are the result of a request to the server. */
+        def envelopes(http: HttpExecutor, entity: String, columns: ColumnSet,
+          batchSize: Int = 0, authTokenSignal: Signal[Task, CrmAuthenticationHeader]) = {
+          Stream.unfoldEval(Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = batchSize))) { t =>
+            val q = QueryExpression(entity, columns = columns, pageInfo = t.getOrElse(EmptyPagingInfo))
+            logger.info(s"Issuing query expression: $q")
+            val xml = CrmXmlWriter.of[QueryExpression].write(q).asInstanceOf[scala.xml.Elem]
+            authTokenSignal.get.flatMap { auth => getMultipleRequestPage(http, xml, auth, t) }
           }
         }
-        //val result = Await.result(output, 10 * config.timeout seconds)
+
+        /** Compose an always fresh auth with a call to get SOAP response Envelopes. */
+        def data(http: HttpExecutor, entity: String, columns: ColumnSet, batchSize: Int = 0, initial: CrmAuthenticationHeader) =
+          Stream.eval(signalOf[Task, CrmAuthenticationHeader](initial)).flatMap { authTokenSignal =>
+            auths.evalMap(newToken => authTokenSignal.set(newToken)).drain mergeHaltBoth
+              envelopes(http, entity, columns, batchSize, authTokenSignal)
+          }
+
+        /** Create a stream that emits the single-line header or does not emit anything. */
+        def headerStream(cols: Seq[String]): Stream[Task, String] =
+          if (!cols.isEmpty) {
+            val header = cols.toList.sorted.
+              map(org.apache.commons.lang3.StringEscapeUtils.escapeCsv(_)).
+              mkString(",") + "\n"
+            Stream.emit(header)
+          } else Stream.empty
+
+        val output = orgAuthF.flatMap { orgAuth =>
+          (entityMetadataFromCache(config.url) recoverWith
+            { case _ => requestEntityMetadata(Http, orgAuth, Some(config.url)) }).flatMap {
+              _ match {
+                case Xor.Right(schema) =>
+
+                  val entityDesc = findEntity(entity, schema).
+                    getOrElse(throw new RuntimeException(s"Unable to find metadata for entity $entity"))
+                  entityDesc.retrievableAttributes.foreach(a => logger.info(s"Attr: $a"))
+
+                  val ecols = entityDesc.retrievableAttributes.map(_.logicalName)
+                  val attsFromFile = dump.attributeListFilename.
+                    map { _.toFile.lines.map(_.trim).filterNot(_.isEmpty).toSeq }
+
+                  val cols = ecols intersect ((attsFromFile, dump.attributeList) match {
+                    case (Some(left), Some(right)) => left ++ right
+                    case (None, Some(right)) => right
+                    case (Some(left), None) => left
+                    case (None, None) => ecols
+                  })
+                  logger.info(s"Columns to dump: $cols")
+
+                  val colSet = Columns(cols)
+                  logger.info(s"Columns to retrieve: $colSet")
+
+                  val rows = Stream.bracket(acquire)(http =>
+                    data(http, entity, colSet, dump.batchSize, orgAuth).
+                      through(toEntities).
+                      flatMap { Stream.emits }.
+                      // should not really need this...should be an error?
+                      through(fillInMissingAttributes(entityDesc, cols.toSet)).
+                      zipWithIndex.
+                      through(dump.recordProcessor).
+                      through(reportEveryN(dump.statusFrequency, (ent: sdk.Entity, index: Int) => {
+                        Task.delay(println(s"${entity}: Processed $index records."))
+                      })).
+                      through(dump.toOutputProcessor), release)
+
+                  val header: Stream[Task, String] =
+                    if (dump.header) headerStream(cols)
+                    else Stream.empty
+
+                  import java.nio.file.StandardOpenOption
+                  (header ++ rows).
+                    through(text.utf8Encode).
+                    to(fs2.io.file.writeAllAsync[Task](java.nio.file.Paths.get(outputFile),
+                      List(StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))).
+                    run.unsafeAttemptRun match {
+                      case Right(_) =>
+                        Future.successful(s"$entity: Completed dumping records.")
+                      case Left(err) =>
+                        Future.successful(err.getMessage)
+                    }
+                case Xor.Left(error) =>
+                  Future.successful(s"Error during processing: $error}")
+              }
+            }
+        } recover {
+          case t => s"Error during processing: ${t.getMessage}"
+        }
         val result = Await.result(output, Duration.Inf)
         println(result)
 
       case "countEntities" =>
-        def fetch(e: String) = s"""
-            <fetch version="1.0" distinct='false' mapping='logical' aggregate='true'> 
-                        <entity name='${e}'> 
-                           <attribute name='${e}id' alias='count' aggregate='count' /> 
-                        </entity> 
-                    </fetch>"""
 
-        def fetchExpr() = <query i:type="b:FetchExpression" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
-                            <b:Query>{ fetch(config.queryEntity) }</b:Query>
-                          </query>
+        //        def fetch(e: String) = s"""
+        //            <fetch version="1.0" distinct='false' mapping='logical' aggregate='true'> 
+        //                        <entity name='${e}'> 
+        //                           <attribute name='${e}id' alias='count' aggregate='count' /> 
+        //                        </entity> 
+        //                    </fetch>"""
+        //
+        //        def fetchExpr() = <query i:type="b:FetchExpression" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+        //        <b:Query>{ fetch(config.queryEntity) }</b:Query>
+        //        </ query >
         //                  <c:string>{config.queryEntity}id</c:string>
         //i:nil="true"
 
-        //        val processQEResults: xml.Elem => (String, Int) = (results: scala.xml.Elem) => {
-        //          val pcookie = (results \\ "PagingCookie").headOption.map(_.text)
-        //          val moreRecords = (results \\ "MoreRecords").headOption.map(_.text.toBoolean)
-        //          val numRecords = (results \\ "TotalRecordCount").headOption.map(_.text.toInt)
-        //          val r = (pcookie, moreRecords, numRecords)
-        //          println("qe result: " + r)
-        //          ("count", numRecords.get)
-        //        }
-
         import responseReaders._
-
-        val processFEResults = (resp: scala.xml.Elem) => {
-          val rvalues = (resp \\ "Attributes" \ "KeyValuePairOfstringanyType").map { kv =>
-            val key = (kv \ "key").text
-            val value = (kv \ "value" \ "Value").text.toInt
-            (key, value)
-          }
-          val result = rvalues.find(_._1 == "count").headOption getOrElse ("count", -1)
-          result
-        }
-
-        /**
-         * Create a query expression from raw XML. *Not* very customizable.
-         */
-        def queryExpr(ename: String, page: Int = 1, cookie: Option[String] = None, enameId: Option[String] = None) =
-          <query i:type="b:QueryExpression" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
-            <b:ColumnSet>
-              <b:AllColumns>false</b:AllColumns>
-              <b:Columns xmlns:c="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
-                <c:string>{ enameId.getOrElse(ename + "id") }</c:string>
-              </b:Columns>
-            </b:ColumnSet>
-            <b:Criteria>
-              <b:Conditions/>
-              <b:FilterOperator>And</b:FilterOperator>
-              <b:Filters/>
-            </b:Criteria>
-            <b:Distinct>false</b:Distinct>
-            <b:EntityName>{ ename }</b:EntityName>
-            <b:LinkEntities/>
-            <b:Orders/>
-            <b:PageInfo>
-              <b:Count>0</b:Count>
-              <b:PageNumber>{ page }</b:PageNumber>
-              <b:PagingCookie>{ cookie.getOrElse("") }</b:PagingCookie>
-              <b:ReturnTotalRecordCount>
-                true
-              </b:ReturnTotalRecordCount>
-            </b:PageInfo>
-          </query>
-
-        // Wow, MS forces you to be synchronous to some degree.
-        import scala.collection.{ immutable => sci }
-        /**
-         * Get the next element in a stream which represents a page result for an
-         * entity query. The stream terminates when there are no more pages.
-         */
-        def syncPage(entity: String, auth: CrmAuthenticationHeader, hasMore: Boolean, page: Int, pagingCookie: Option[String],
-          runningSum: Int, entityId: Option[String] = None): sci.Stream[Int] = {
-          if (hasMore) {
-            val q = retrieveMultiple(auth, queryExpr(entity, page, pagingCookie, entityId))
-            logger.debug("Query XML: " + q.toString)
-            val headers = Map("SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
-            val req = createPost(auth.url) <:< headers << q.toString
-            logger.debug("Query entity request: " + req.toRequest)
-
-            val fut2 = Http(req OKThenParse (pagingCookieReader, logger)).
-              map {
-                _ match {
-                  case x@Xor.Right((cookie, more, count)) =>
-                    logger.debug(s"Iteration: more=$more, count=$count, cookie=$cookie")
-                    sci.Stream.cons(count, syncPage(entity, auth, more, page + 1, cookie, runningSum + count, entityId))
-                  case Xor.Left(error) =>
-                    println(s"Error during processing counts for entity $entity: ${toUserMessage(error)}")
-                    error.log(logger)
-                    sci.Stream.empty
-                  case _ =>
-                    println(s"Data in server response was insufficient to continue counts for entity $entity.")
-                    sci.Stream.empty
-                }
-              }
-            Await.result(fut2, config.timeout seconds)
-          } else sci.Stream.empty
-        }
-
         import scala.util.matching._
 
         // get all entities then filter them
@@ -608,13 +558,39 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
             else false
           }
 
+        import crm.sdk._
+        import java.util.concurrent.Executors
+        implicit val ec = scala.concurrent.ExecutionContext.fromExecutor(Executors.newWorkStealingPool(config.concurrency + 2))
+        implicit val strategy = Strategy.fromExecutionContext(ec)
+        implicit val reader = retrieveMultipleRequestReader
+
+        def envelopes(http: HttpExecutor, entity: String, id: String, orgAuth: CrmAuthenticationHeader) =
+          Stream.unfoldEval[Task, Option[PagingInfo], Envelope](Some(EmptyPagingInfo)) { t =>
+            val q = QueryExpression(entity, ColumnSet(id), pageInfo = t.getOrElse(EmptyPagingInfo))
+            logger.debug(s"Issuing query expression: $q")
+            val xml = CrmXmlWriter.of[QueryExpression].write(q).asInstanceOf[scala.xml.Elem]
+            getMultipleRequestPage(http, xml, orgAuth, t)
+          }
+
+        /**
+         * Extract record count from an Entity Collection Result. Look for
+         *  the total record count or count any entitis found (backup).
+         */
+        def getEntityCollectionResultRecordCount: Pipe[Task, Envelope, Int] =
+          pipe.collect {
+            _ match {
+              case Envelope(_, EntityCollectionResult(_, _, Some(ecount), _, _, _)) => ecount
+              case Envelope(_, EntityCollectionResult(_, entities, _, _, _, _)) => entities.length
+            }
+          }
+
         // Get entity logical names
         import sdk.metadata.readers._
 
         val output = discoveryAuth(Http, config.username, config.password, config.region).flatMap { discovery =>
           discovery match {
             case Xor.Right(discoveryAuth) =>
-              val fut = orgServicesAuth(Http, discoveryAuth, config.username, config.password, config.url, config.region).flatMap { services =>
+              val fut = orgServicesAuth(Http, discoveryAuth, config.username, config.password, config.url, config.region, config.leaseTime).flatMap { services =>
                 services match {
                   case Xor.Right(orgAuth) =>
                     (entityMetadataFromCache(config.url) recoverWith
@@ -632,24 +608,28 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
                             println("Entities to process:\n" + schemaEntityNamesToProcess.mkString("\n"))
                             println("Record counts")
 
-                            implicit val strategy = Strategy.fromExecutionContext(ExecutionContext.Implicits.global)
-                            concurrent.join[Task, (String, Int)](2) {
-                              Stream.emits(schemaEntityNamesToProcess).map { ename =>
-                                val id = primaryId(ename, schema) orElse Option(s"${ename}id")
-                                logger.debug(s"Getting counts for entity: $ename with $id")
-                                Stream.eval(Task.delay {
-                                  (ename, syncPage(ename, orgAuth, true, 1, None, 0, id).sum)
-                                })
+                            Stream.bracket(acquire)(http =>
+                              concurrent.join[Task, (String, Int)](config.concurrency) {
+                                Stream.emits(schemaEntityNamesToProcess).map { ename =>
+                                  val id = primaryId(ename, schema) getOrElse s"${ename}id"
+                                  logger.debug(s"Getting counts for entity: $ename with $id")
+                                  val stream: Stream[Task, (String, Int)] =
+                                    envelopes(http, ename, id, orgAuth).
+                                      through(getEntityCollectionResultRecordCount).
+                                      through(pipe.sum).
+                                      through(pipe.lastOr(-1)).
+                                      map(s => (ename, s))
+                                  stream
+                                }
+                              },
+                              release).runLog.unsafeAttemptRun() match {
+                                case Right(counts) =>
+                                  counts.sortBy(t => t._1).map(p => s"${p._1}, ${p._2}").mkString("\n")
+                                case Left(ex) =>
+                                  logger.debug(ex)(s"Error running count queries.")
+                                  "Error running count queries."
                               }
-                            }.runLog.unsafeAttemptRun() match {
-                              case Right(counts) =>
-                                val sb = new StringBuilder()
-                                counts.foreach(p => sb.append(s"${p._1}, ${p._2}\n"))
-                                sb.toString
-                              case Left(ex) =>
-                                logger.debug(ex)(s"Error running count queries.")
-                                "Error running count queries."
-                            }
+
                           case Xor.Left(error) =>
                             s"Error during processing: $error}"
                         }
@@ -670,6 +650,9 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
    * Create some entities.
    */
   def create(config: Config): Unit = {
+
+    import Defaults._
+
     println("Create test.")
     val fut = GetHeaderOnline(config.username, config.password, config.url).flatMap { header =>
       val body1 =
@@ -802,6 +785,9 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
    * Run discovery commands.
    */
   def discovery(config: Config): Unit = {
+
+    import Defaults._
+
     println("Discovery mode")
     config.discoveryAction match {
 
@@ -936,9 +922,11 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
   import scala.async.Async.{ async => sasync }
 
   def auth(config: Config): Unit = {
+    import Defaults._
+
     println("Checking authentication by performing a WhoAmI")
     println("Authenticating...")
-    val who = sasync {
+    val who = scala.async.Async.async {
       val header = await(GetHeaderOnline(config.username, config.password, config.url))
       val guid = await(CrmWhoAmI(header, config))
       println("User guid: " + guid)
@@ -957,6 +945,8 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
   }
 
   def metadata(config: Config): Unit = {
+    import Defaults._
+
     println("Authenticating...")
     val header = GetHeaderOnline(config.username, config.password, config.url)
 
@@ -997,6 +987,8 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
    * @return Request body as XML or exception thrown if the response is not OK.
    */
   def createPost(requestBody: xml.Elem, auth: CrmAuthenticationHeader, config: Config, url: Option[String] = None): Future[xml.Elem] = {
+    import Defaults._
+
     val body = wrap(auth, requestBody)
     val req = createPost(url getOrElse config.url) << body.toString
     Http(req OK as.xml.Elem)
@@ -1006,6 +998,7 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
    * Issues a WhoAmI message versus just returning a SOAP request body.
    */
   def CrmWhoAmI(auth: CrmAuthenticationHeader, config: Config): Future[String] = {
+    import Defaults._
 
     val xml3 = <s:Body>
                  <Execute xmlns="http://schemas.microsoft.com/xrm/2011/Contracts/Services">
@@ -1031,6 +1024,8 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
    * Get the user name given the user id GUID. Issues the call to the endpoint versus just returning a SOAP request body.
    */
   def CrmGetUserName(authHeader: CrmAuthenticationHeader, id: String, config: Config): Future[String] = {
+    import Defaults._
+
     val xml = <s:Body>
                 <Execute xmlns="http://schemas.microsoft.com/xrm/2011/Contracts/Services" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
                   <request i:type="a:RetrieveRequest" xmlns:a="http://schemas.microsoft.com/xrm/2011/Contracts">
