@@ -208,7 +208,7 @@ ${raw.getResponseBody}
       reader.read(body) match {
         case ParseSuccess(a) => Xor.right(a)
         case PartialParseSuccess(a, errs) =>
-          logger.warn("There were non-fatal parsing issues: " + errs)
+          logger.debug("There were non-fatal parsing issues: " + errs)
           Xor.right(a)
         case x@ParseFailure(errs) =>
           logger.error("There are XML parsing issues: " + errs)
@@ -396,10 +396,10 @@ case class Entity(attributes: Map[String, ServerValue] = collection.immutable.Ha
 
 case class EntityCollectionResult(name: String,
   entities: Seq[Entity] = Nil,
-  totalRecordCount: Option[Int] = None,
-  limitExceeded: Boolean = false,
-  moreRecords: Boolean = false,
-  pagingCookie: Option[String] = None) extends ResponseBody
+  totalRecordCount: Option[Int],
+  limitExceeded: Boolean,
+  moreRecords: Boolean,
+  pagingCookie: Option[String]) extends ResponseBody
 
 case class ResponseHeader(action: String, relatedTo: String)
 
@@ -484,8 +484,8 @@ object responseReaders {
 
   implicit val entityCollectionResultReader: XmlReader[EntityCollectionResult] =
     ((__ \ "EntityName").read[String] and
-      (__ \ "Entities" \\ "Entity").read(seq[Entity]).default(Nil) and
-      (__ \ "TotalRecordCount").read[Int].filter(_ >= 0).optional and
+      (__ \ "Entities" \\ "Entity").read(strictReadSeq[Entity]).default(Nil) and
+      (__ \ "TotalRecordCount").read[Int].optional and
       (__ \ "TotalRecordCountLimitExceeded").read[Boolean] and
       (__ \ "MoreRecords").read[Boolean] and
       (__ \ "PagingCookie").read[String].filter(!_.trim.isEmpty).optional)(EntityCollectionResult.apply _)

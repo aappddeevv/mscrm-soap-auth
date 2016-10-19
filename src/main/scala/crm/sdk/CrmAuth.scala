@@ -112,21 +112,28 @@ trait CrmAuth {
     http(svchost OK as.xml.Elem).map { xml =>
       logger.debug("GetHeaderOnline:response: " + xml)
 
-      val cipherElements = xml \\ "CipherValue"
-      val token1 = cipherElements(0).text
-      val token2 = cipherElements(1).text
+      try {
+        val cipherElements = xml \\ "CipherValue"
+        val token1 = cipherElements(0).text
+        val token2 = cipherElements(1).text
 
-      //val keyIdentiferElements = xml \\ "wsse:KeyIdentifier"
-      val keyIdentiferElements = xml \\ "KeyIdentifier"
-      val keyIdentifer = keyIdentiferElements(0).text
+        //val keyIdentiferElements = xml \\ "wsse:KeyIdentifier"
+        val keyIdentiferElements = xml \\ "KeyIdentifier"
+        val keyIdentifer = keyIdentiferElements(0).text
 
-      //val tokenExpiresElements = xml \\ "wsu:Expires"
-      val tokenExpiresElements = xml \\ "Expires"
-      val tokenExpires = tokenExpiresElements(0).text
+        //val tokenExpiresElements = xml \\ "wsu:Expires"
+        val tokenExpiresElements = xml \\ "Expires"
+        val tokenExpires = tokenExpiresElements(0).text
 
-      val c = DatatypeConverter.parseDateTime(tokenExpires)
-      CrmAuthenticationHeader(CreateSoapHeader(url, keyIdentifer, token1, token2), keyIdentifer, token1, token2, c.getTime(), url)
+        val c = DatatypeConverter.parseDateTime(tokenExpires)
+        CrmAuthenticationHeader(CreateSoapHeader(url, keyIdentifer, token1, token2), keyIdentifer, token1, token2, c.getTime(), url)
+      } catch {
+        case scala.util.control.NonFatal(e) =>
+          logger.error(e)("Unable to obtain auth, error during parsing XML")
+          throw e
+      }
     }
+
   }
 
   /**
@@ -360,49 +367,70 @@ trait CrmAuth {
     </s:Envelope>
 
   /**
-   * Get a page of entity results wrapped in a Task. Passing in pageInfo = None returns None
-   * otherwise it returns `Option[(Envelope, Option[PagingInfo])]`. The
+   * Get a page of entity results wrapped in a Task. Returns
+   * `(Envelope, Option[PagingInfo], moreRecords)`. The
    * result type can be interpreted as the "result" and additional information to
    * perform another fetch, if needed, to obtain the next page of results in the multiple request.
    * Returned PagingInfo is suitable for a subsequent calls to this function as the
-   * page number and cookie have been updated.
+   * page number and cookie have been updated. The paging information and
+   * "morerecords" values are promoted into the return value so its is easier
+   * to determine if another call to this function is needed.
    *
-   * The final XML request envelope is debug logged.
+   * The final XML request envelope is debug logged. An exception is thrown
+   * if a Fault or error is encountered. Errors and SOAP faults are also logged.
    */
-  def getMultipleRequestPage[T <: Envelope](http: HttpExecutor, xmlBody: scala.xml.Elem, orgAuth: CrmAuthenticationHeader, pageInfo: Option[PagingInfo])(
-    implicit ec: ExecutionContext, strategy: Strategy, reader: XmlReader[T]): Task[Option[(Envelope, Option[PagingInfo])]] = Task.fromFuture {
+  def getMultipleRequestPage[T <: Envelope](http: HttpExecutor, xmlBody: scala.xml.Elem, orgAuth: CrmAuthenticationHeader, pageInfo: Option[PagingInfo], retrys: Int = 3)(
+    implicit ec: ExecutionContext, strategy: Strategy, reader: XmlReader[T]): Task[Throwable Xor (Envelope, Option[PagingInfo], Boolean)] = Task.fromFuture {
     import responseReaders._
-    pageInfo match {
-      case Some(pi) =>
-        val qxml = retrieveMultiple(orgAuth, xmlBody)
-        logger.debug("Query XML: " + qxml.toString)
-        val headers = Map("SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
-        val req = createPost(orgAuth.url) <:< headers << qxml.toString
-        logger.debug("Query entity request: " + req.toRequest)
 
-        http(req)(ec).map { response =>
-          logger.debug(s"Response: ${show(response)}")
+    def makeRequest = {
+      val qxml = retrieveMultiple(orgAuth, xmlBody)
+      logger.debug("Query XML: " + qxml.toString)
+      val headers = Map("SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
+      val req = createPost(orgAuth.url) <:< headers << qxml.toString
+      logger.debug("Query entity request: " + req.toRequest)
+      http(req)(ec).either.map {
+        _ match {
+          case Right(response) =>
+            logger.debug(s"Response: ${show(response)}")
 
-          val body = response.getResponseBody
-          val xmlBody = scala.xml.XML.loadString(body)
-          val crmResponse = processXml(response)(reader, logger)
+            try {
+              val body = response.getResponseBody
+              val xmlBody = scala.xml.XML.loadString(body)
+              val crmResponse = processXml(response)(reader, logger)
 
-          crmResponse match {
-            case Xor.Right(Envelope(_, Fault(n, msg))) =>
-              throw new RuntimeException(s"Server returned an error: $msg ($n)")
-            case Xor.Left(err) =>
-              throw new RuntimeException(toUserMessage(err))
-            case Xor.Right(e@Envelope(_, ec@EntityCollectionResult(name, entities, total, limit, more, cookieOpt))) =>
-              logger.trace(ec.toString)
-              logger.info(s"Iteration: ename=$name, totalRecordCount=$total, limitExceeded=>$limit, moreRecords=$more, cookie=$cookieOpt")
-              val newPagingInfo = cookieOpt.map(c => pi.copy(page = pi.page + 1, cookie = cookieOpt))
-              Some((e, newPagingInfo))
-          }
+              crmResponse match {
+                case Xor.Right(Envelope(_, Fault(n, msg))) =>
+                  logger.error(s"SOAP fault: $msg ($n)")
+                  Xor.left(new RuntimeException(s"Server returned an error: $msg ($n)"))
+                case Xor.Left(err) =>
+                  logger.error(s"Error occurred: $err")
+                  logger.error(s"User friendly message: ${toUserMessage(err)}")
+                  Xor.left(new RuntimeException(toUserMessage(err)))
+                case Xor.Right(e@Envelope(_, ec@EntityCollectionResult(name, entities, total, limit, more, cookieOpt))) =>
+                  logger.trace(ec.toString)
+                  logger.info(s"Iteration: ename=$name, totalRecordCount=$total, limitExceeded=>$limit, moreRecords=$more, cookie=$cookieOpt")
+                  val pinfo = cookieOpt.flatMap(c => pageInfo.map(pi => pi.copy(page = pi.page + 1, cookie = cookieOpt)))
+                  Xor.right((e, pinfo, more))
+              }
+            } catch {
+              case scala.util.control.NonFatal(e) =>
+                logger.error(e)("Error possibly during string=>xml or xml=>object reading.")
+                logger.error(s"Request content: ${qxml.toString}")
+                logger.error(s"Response body: ${response.getResponseBody}")
+                Xor.left(e)
+            }
+
+          case Left(e) =>
+            logger.error(e)("Request error")
+            Xor.left(e)
         }
-      case None =>
-        logger.debug("Stopping iteration. No paging information.")
-        Future.successful(None)
+      }
     }
+    import dispatch.retry._
+    implicit def xor[A, B]: Success[Xor[A, B]] = new Success(_.isRight)
+
+    retry.Directly(retrys)(() => makeRequest)
   }(strategy, ec)
 
   /**
@@ -431,17 +459,28 @@ trait CrmAuth {
   import metadata._
 
   /**
-   * Return entity metadata or a user printable error message. Only pulls entities and
-   * attribute metadata which can take awhile.
-   *
-   * @param token String to hash to write cache of response to. None implies no caching.
+   *  Issue http request to obtain entity metadata.
    */
-  def requestEntityMetadata(http: HttpExecutor, auth: CrmAuthenticationHeader, token: Option[String] = None)(implicit ec: ExecutionContext, reader: XmlReader[CRMSchema]): Future[Xor[String, CRMSchema]] = {
-    val body = RetrieveAllEntities(auth, "Entity Attributes").toString
+  def fetchEntityMetadata(http: HttpExecutor, auth: CrmAuthenticationHeader)(implicit ec: ExecutionContext) = {
+    val body = RetrieveAllEntities(auth, "Entity Attributes Relationships").toString
     val req = createPost(auth.url) << body
     logger.debug("requestEntityMetadata:request:" + req.toRequest)
     logger.debug("requestEntityMetadata:request body: " + body)
-    http(req)(ec) map { r =>
+    http(req)(ec)
+  }
+
+  /**
+   * Return entity metadata or a user printable error message. By default, all metadata is returned
+   * and the metadata package can be quite large. Automatically sets the cache
+   * with the returned results if token is a Some. This function does additional
+   * post processing to convert errors to be more user friendly.
+   *
+   * @param auth Org data services auth.
+   * @param token String to hash to write persistent cache of metadata to. The entire envelope is written.
+   * None implies no caching. Use the org web app url instead of the services one, generally.
+   */
+  def requestEntityMetadata(http: HttpExecutor, auth: CrmAuthenticationHeader, token: Option[String] = None)(implicit ec: ExecutionContext, reader: XmlReader[CRMSchema]): Future[Xor[String, CRMSchema]] = {
+    fetchEntityMetadata(http, auth)(ec) map { r =>
       token.foreach { t => setCache(t, r.getResponseBody) }
       r
     } map { r =>
@@ -464,10 +503,20 @@ trait CrmAuth {
         reader.read(xml.XML.loadString(content)) match {
           case ParseSuccess(v) => Xor.right(v)
           case PartialParseSuccess(v, issue) => Xor.right(v)
-          case _ => throw new RuntimeException(s"Unable to parse cache obtained for token $token")
+          case _ => throw new RuntimeException(s"Unable to parse cache loaded for token $token")
         }
       }.getOrElse(throw new RuntimeException(s"No cache found for token $token."))
     }(ec)
+
+  /**
+   * Obtain an org's entity metadata either from the cache or by issuing a
+   * request. The web app URL is used to to hash into the cache.
+   *
+   * @return A Future with an (error msg Xor CrmSchema).
+   */
+  def entityMetadata(http: HttpExecutor, orgAuth: CrmAuthenticationHeader, webAppUrl: String)(implicit reader: XmlReader[CRMSchema], ec: ExecutionContext) =
+    entityMetadataFromCache(webAppUrl) recoverWith
+      { case _ => requestEntityMetadata(Http, orgAuth, Some(webAppUrl))(ec, reader) }
 
   /** Create a POST SOAP request. */
   def createPost(url: String): Req = dispatch.url(endpoint(url)).secure.POST.setContentType("application/soap+xml", "utf-8")
@@ -591,8 +640,8 @@ trait CrmAuth {
   }
 
   /**
-   * Produce an org services auth suitable for SOAP requests. 
-   * 
+   * Produce an org services auth suitable for SOAP requests.
+   *
    * The discovery auth is thrown away so this is a very expensive call to make.
    *
    * @param leaseTime Lease time of auth header in minutes.

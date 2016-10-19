@@ -27,17 +27,74 @@ object metadata {
   /**
    * Attribute metadata.
    */
-  case class Attribute(schemaName: String,
+  sealed trait Attribute {
+    def schemaName: String
+    def logicalName: String
+    def attributeType: String
+    def isValidForRead: Boolean // can be read in a retrieve
+    def isPrimaryId: Boolean
+    def isLogical: Boolean // whether stored in a different table
+    def attributeOf: Option[String]
+    def columnNumber: Int
+    def metadataId: String
+    def entityLogicalName: String
+  }
+
+  case class BasicAttribute(attributeType: String,
+    schemaName: String,
     logicalName: String,
-    attributeType: String,
     isValidForRead: Boolean, // can be read in a retrieve
     isPrimaryId: Boolean,
     isLogical: Boolean, // whether stored in a different table
     attributeOf: Option[String] = None,
     columnNumber: Int = -1,
     metadataId: String,
-    enityLogicalName: String)
+    entityLogicalName: String) extends Attribute
 
+  case class DoubleAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean, // can be read in a retrieve
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
+    minValue: Double = 0,
+    maxValue: Double = 0) extends Attribute
+
+  case class StringAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean, // can be read in a retrieve
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
+    minLength: Int = 0,
+    maxLength: Int,
+    format: Option[String]) extends Attribute
+
+  case class LookupAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean, // can be read in a retrieve
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
+    targets: Seq[String]) extends Attribute
+
+  sealed trait DateTimeBehavior
+  case object DateOnly extends DateTimeBehavior
+  case object TimeZoneIndependent extends DateTimeBehavior
+  case object USerlocal extends DateTimeBehavior  
+    
   /**
    * The referenced/referencing names are logical names.
    */
@@ -88,19 +145,83 @@ object metadata {
 
   object readers {
 
-    implicit val readAttribute: XmlReader[Attribute] = (
-      (__ \ "SchemaName").read[String] and
-      (__ \ "LogicalName").read[String] and
-      (__ \ "AttributeType").read[String] and
-      (__ \ "IsValidForRead").read[Boolean] and
-      (__ \ "IsPrimaryId").read[Boolean] and
-      (__ \ "IsLogical").read[Boolean] and
-      (__ \ "AttributeOf").read[String].optional.filter(!_.isEmpty) and
-      (__ \ "ColumnNumber").read[Int].default(-1) and
-      (__ \ "MetadataId").read[String] and
-      (__ \ "EntityLogicalName").read[String])(Attribute.apply _)
+    case class WrongTypeError(expected: String) extends ValidationError
 
-    implicit val readRelationship: XmlReader[Relationship] = (
+    val schemaNameReader = (__ \ "SchemaName").read[String]
+    val logicalNameReader = (__ \ "LogicalName").read[String]
+    val attributeTypeReader = (__ \ "AttributeType").read[String]
+    val isValidForReadReader = (__ \ "IsValidForRead").read[Boolean]
+    val isPrimaryIdReader = (__ \ "IsPrimaryId").read[Boolean]
+    val isLogicalReader = (__ \ "IsLogical").read[Boolean]
+    val attributeOfReader = (__ \ "AttributeOf").read[String].optional.filter(!_.isEmpty)
+    val columnNumberReader = (__ \ "ColumnNumber").read[Int].default(-1)
+    val metadataIdReader = (__ \ "MetadataId").read[String]
+    val entityLogicalNameReader = (__ \ "EntityLogicalName").read[String]
+
+    val stringArray: XmlReader[Seq[String]] = (__ \\ "string").read(seq[String])
+
+    private[this] val readCommonAttributesExceptType =
+      schemaNameReader and
+        logicalNameReader and
+        isValidForReadReader and
+        isPrimaryIdReader and
+        isLogicalReader and
+        attributeOfReader and
+        columnNumberReader and
+        metadataIdReader and
+        entityLogicalNameReader
+
+    protected val basicAttributeReader: XmlReader[BasicAttribute] =
+      (attributeTypeReader and
+        schemaNameReader and
+        logicalNameReader and
+        isValidForReadReader and
+        isPrimaryIdReader and
+        isLogicalReader and
+        attributeOfReader and
+        columnNumberReader and
+        metadataIdReader and
+        entityLogicalNameReader)(BasicAttribute.apply _)
+
+    val targetsReader = (__ \ "Targets").read[xml.NodeSeq] andThen stringArray
+
+    /** Read LookupAttribute. Fail fast by looking at AttributeType. */
+    val lookupAttributeReader: XmlReader[LookupAttribute] =
+      (attributeTypeReader.filter(WrongTypeError("Lookup"))(_ == "Lookup") and
+        schemaNameReader and
+        logicalNameReader and
+        isValidForReadReader and
+        isPrimaryIdReader and
+        isLogicalReader and
+        attributeOfReader and
+        columnNumberReader and
+        metadataIdReader and
+        entityLogicalNameReader and
+        targetsReader)(LookupAttribute.apply _)
+
+    val minLengthReader = (__ \ "MinLength").read[Int].default(0)
+    val maxLengthReader = (__ \ "MaxLength").read[Int]
+    val formatReader = (__ \ "Format").read[String].optional
+
+    val stringAttributeReader: XmlReader[StringAttribute] =
+      (attributeTypeReader.filter(WrongTypeError("String"))(_ == "String") and
+        schemaNameReader and
+        logicalNameReader and
+        isValidForReadReader and
+        isPrimaryIdReader and
+        isLogicalReader and
+        attributeOfReader and
+        columnNumberReader and
+        metadataIdReader and
+        entityLogicalNameReader and
+        minLengthReader and
+        maxLengthReader and
+        formatReader)(StringAttribute.apply _)
+
+    implicit val attributeReader: XmlReader[Attribute] =
+      stringAttributeReader orElse lookupAttributeReader orElse basicAttributeReader
+
+    implicit val relationshipReader: XmlReader[Relationship] = (
       (__ \ "SchemaName").read[String] and
       (__ \ "ReferencedAttribute").read[String].default("") and
       (__ \ "ReferencedEntity").read[String].default("") and
@@ -109,7 +230,13 @@ object metadata {
       (__ \ "ReferencingEntity").read[String].default("") and
       (__ \ "ReferencingEntityNavigationPropertyName").read[String].default(""))(Relationship.apply _)
 
-    implicit val readEntity: XmlReader[EntityDescription] = (
+    /** Navigate to "Attributes" */
+    val attributesReader: XmlReader[xml.NodeSeq] = (__ \\ "Attributes").read
+
+    /** Read a single AttributeMetdat */
+    val attributeMetadataReader: XmlReader[xml.NodeSeq] = (__ \\ "AttributeMetadata").read
+
+    implicit val entityReader: XmlReader[EntityDescription] = (
       (__ \ "SchemaName").read[String] and
       (__ \ "LogicalName").read[String] and
       (__ \ "PrimaryIdAttribute").read[String] and
@@ -117,6 +244,9 @@ object metadata {
       (__ \\ "ManyToOneRelationshipMetadata").read(seq[Relationship]) and
       (__ \\ "ManyToManyRelationshipMetadata").read(seq[Relationship]) and
       (__ \\ "AttributeMetadata").read(seq[Attribute]))(EntityDescription.apply _)
+
+    //(attributesReader andThen attributeMetadataReader andThen seq(attributeReader))
+    val x = (__ \\ "AttributeMetadata").read(seq[Attribute])
 
     implicit val schemaReader: XmlReader[CRMSchema] = (__ \\ "EntityMetadata").read(seq[EntityDescription]).map(CRMSchema(_))
 

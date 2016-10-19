@@ -10,3 +10,4 @@ bin
 *.iml
 nohup.out
 .ensime
+.ensime.cache

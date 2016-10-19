@@ -19,6 +19,8 @@ import better.files._
 import java.io.{ File => JFile }
 import fs2._
 import scala.concurrent.ExecutionContext
+import scala.util.matching._
+import sdk.metadata._
 
 trait StreamHelpers {
   /**
@@ -43,10 +45,36 @@ trait StreamHelpers {
   def makeOutputRow(rs: String = ",", eor: String = "\n"): Pipe[Task, sdk.Entity, String] = pipe.lift { ent =>
     import org.apache.commons.lang3.StringEscapeUtils._
     val keys = ent.attributes.keys.toList.sorted
-    keys.map(ent.attributes(_).text).map(escapeCsv(_)).mkString(rs) + eor
+    keys.map(ent.attributes(_).text).map(escapeCsv(_).replace("\r","").replace("\n", "\\n").replaceAll("[^\\u0000-\\uFFFF]", "")).mkString(rs) + eor
   }
-  
+
   val defaultMakeOutputRow = makeOutputRow()
+
+  /**
+   * Convert a list of strings to list of regexs useful for match
+   *  metadata names e.g. logical names. Match will be case insensitive.
+   */
+  def makeFilters(f: Seq[String]) = f.
+    filterNot(_.isEmpty).
+    filterNot(_.trim.charAt(0) == '#').
+    map(r => new Regex("(?i)" + r.trim))
+
+  /**
+   * Given a schema and some filters, find all the attributes that meet the filter
+   * spec and map that to all retrievable attributes for that entity.
+   */
+  def entityAttributeSpec(efilters: Seq[String], schema: CRMSchema): Map[String, Seq[String]] = {
+    import scala.util.matching._
+    val _allowed = makeFilters(efilters.distinct)
+
+    def allowed(ename: String) =
+      if (_allowed.length == 0) true
+      else (_allowed.filter(pat => ename match { case pat() => true; case _ => false }).size > 0)
+
+    schema.entities.
+      filter(ent => allowed(ent.logicalName)).
+      map { ent => (ent.logicalName, ent.retrievableAttributes.map(_.logicalName)) }.toMap
+  }
 
 }
 
