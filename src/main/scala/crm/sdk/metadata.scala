@@ -137,7 +137,7 @@ object metadata {
       e <- schema.entities.find(_.logicalName.trim.toUpperCase == ename.trim.toUpperCase)
       //a <- e.attributes.find(_.isPrimaryId)
     } yield e.primaryId //yield a.logicalName
-
+    
   /**
    * Find an entity ignoring case in the entity's logical name.
    */

@@ -30,7 +30,7 @@ libraryDependencies ++= Seq(
     ,"org.log4s" %% "log4s" % "latest.release"
     ,"com.github.pathikrit" %% "better-files" % "latest.release"
     ,"com.iheart" %% "ficus" % "latest.release"
-    ,"org.typelevel" %% "cats" % "latest.release"
+    ,"org.typelevel" %% "cats" % "0.7.2"
     ,"co.fs2" %% "fs2-core" % "latest.release"
     ,"co.fs2" %% "fs2-io" % "latest.release"
     ,"org.apache.commons" % "commons-lang3" % "latest.release"
@@ -58,5 +58,5 @@ mappings in Universal <+= (packageBin in Compile) map { jar =>
   jar -> ("lib/" + jar.getName)
 }
 
-
+mainClass in Compile := Some("crm.program")
 

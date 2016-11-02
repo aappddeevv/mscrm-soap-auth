@@ -1,11 +1,12 @@
 package crm
 package sdk
 
+import scala.language._
 import scala.util.control.Exception._
 import dispatch._, Defaults._
 import java.util.Date;
 import cats._
-import data._
+import cats.data._
 import cats.syntax._
 import org.log4s._
 import better.files._
@@ -23,20 +24,34 @@ trait SoapHelpers {
   /**
    * Create a new dispatch http client that honors the config parameters. Do not
    * forget to shut it down after using it.
+   * @deprecated
    */
   def client(config: Config) = Http.configure { builder =>
     builder.setRequestTimeoutInMs(config.timeout * 1000)
     builder.setFollowRedirects(true)
     builder.setAllowPoolingConnection(true)
     builder.setCompressionEnabled(true)
+    builder.setRequestCompressionLevel(9)
     builder
   }
 
-  def client(timeoutInSeconds: Int) = Http.configure { builder =>
+  /**
+   * Create a new asynchttpclient. You should probably let the client select
+   * its own thread pool.
+   */
+  def client(timeoutInSeconds: Int,
+    connectionPoolIdelTimeoutInSec: Int = 120,
+    ec: Option[java.util.concurrent.ExecutorService] = None) = Http.configure { builder =>
     builder.setRequestTimeoutInMs(timeoutInSeconds * 1000)
     builder.setFollowRedirects(true)
     builder.setAllowPoolingConnection(true)
     builder.setCompressionEnabled(true)
+    builder.setRequestCompressionLevel(9)
+    ec.foreach(builder.setExecutorService(_))
+    builder.setMaxRequestRetry(5)
+    builder.setIdleConnectionTimeoutInMs(5 * 60 * 1000)
+    builder.setIdleConnectionInPoolTimeoutInMs(5 * 60 * 1000)
+    //builder.setIdleConnectionInPoolTimeoutInMs(connectionPoolIdelTimeoutInSec*1000)
     builder
   }
 
@@ -360,8 +375,32 @@ object ColumnSet {
   val all = AllColumns()
 }
 
+sealed trait ExprOperator
+case object Equal extends ExprOperator
+case object In extends ExprOperator
+case object NotNull extends ExprOperator
+case object LastXDays extends ExprOperator
+case object Like extends ExprOperator
+
+case class ConditionExpression[T](attribute: String, op: ExprOperator, values: Seq[T])
+
+sealed trait Query
+
 case class QueryExpression(entityName: String, columns: ColumnSet = AllColumns(),
-  pageInfo: PagingInfo = PagingInfo(), lock: Boolean = false)
+  pageInfo: PagingInfo = PagingInfo(), lock: Boolean = false) extends Query
+
+/** Expression with a fully formed fetch XML fragment. The fragment
+ *  is altered with paging information and other enhancements as
+ *  needed when the fetch xml query is issued. The element `fetch`
+ *  should be the toplevel element. This class is really a "tag'
+ *  on an XML Element.
+ */
+case class FetchExpression(xml: scala.xml.Elem, pageInfo: PagingInfo = PagingInfo()) extends Query
+
+object FetchExpression {
+  def fromXML(xml: String, pagingInfo: PagingInfo = PagingInfo()) = 
+    FetchExpression(scala.xml.XML.loadString(xml), pagingInfo)
+}
 
 case class Endpoint(name: String, url: String)
 
@@ -496,6 +535,10 @@ object responseReaders {
     (__ \ "ErrorCode").read[Int] and
     (__ \ "Message").read[String])(Fault.apply _)
 
+  val reasonReader = (
+      XmlReader.pure(-1) and
+      (__ \\ "Reason").read[String])(Fault.apply _)
+    
   implicit val pagingCookieReader =
     ((__ \\ "PagingCookie").read[String].filter(!_.trim.isEmpty).optional and
       (__ \\ "MoreRecords").read[Boolean] and
@@ -531,7 +574,7 @@ object responseReaders {
   val retrieveMultipleRequestReader =
     (responseHeaderReader and
       (body andThen (
-        (fault andThen detail andThen organizationServiceFault andThen faultReader) or
+        (fault andThen ((detail andThen organizationServiceFault andThen faultReader) or reasonReader)) or
         (retrieveMultipleResponse andThen retrieveMultipleResult andThen entityCollectionResultReader))))(Envelope.apply _)
 
 }

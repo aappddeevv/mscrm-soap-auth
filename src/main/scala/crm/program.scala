@@ -19,17 +19,35 @@ import better.files._
 import java.io.{ File => JFile }
 import fs2._
 import scala.concurrent.ExecutionContext
+import sdk.CrmAuth._
+import sdk.SoapHelpers._
+import sdk.StreamHelpers._
 
 case class Config(
-  leaseTime: Int = 120, // in minutes
-  leaseTimeRenewalFraction: Double = 0.9, // don't even ask
+  /** Duration of an authorization in minutes. */
+  leaseTime: Int = 120,
+  /**
+   * % of leasTime that an auth is renewed. This gives time for the auth
+   *  to be generated because it takes time to generate and receive an auth.
+   */
+  leaseTimeRenewalFraction: Double = 0.9,
   help: Boolean = false,
-  url: String = "", // web app url
+  /**
+   * Web app url for CRM online.
+   */
+  url: String = "",
   servicesUrl: String = "",
+  /**
+   * Region for the org you want to connect to. You may have many
+   * orgs within a region that you can connect to.
+   */
   region: String = "NA",
   username: String = "",
   password: String = "",
-  timeout: Int = 30 * 60, // seconds
+  /**
+   * Timeout to wait for an individual remote request.
+   */
+  timeout: Int = 30 * 60, // seconds, wow that's long!
   mode: String = "auth",
   filterFilename: String = "filters.txt",
   objects: String = "Entity Relationships Attributes",
@@ -41,26 +59,59 @@ case class Config(
   queryEntity: String = "contact",
   queryCountFilterFilename: String = "count-filters.txt",
   queryFilters: Seq[String] = Seq(),
+  keyfileChunkSize: Int = 2000000,
+  keyfilePrefix: String = "",
+  keyfileEntity: String = "",
   dump: Dump = Dump(),
   entityCommand: String = "runCommands",
   commandFile: String = "commands.json",
+  //connectionPoolIdelTimeoutInSec: Int = 5*60,
   concurrency: Int = 2,
-  parallelism: Int = 4,
-  httpRetrys: Int = 3)
+  pconcurrency: Int = 5,
+  parallelism: Int = 16,
+  httpRetrys: Int = 10,
+  pauseBetweenRetriesInSeconds: Int = 30,
+  ignoreKeyFiles: Boolean = false,
+  keyfileChunkFetchSize: Int = 5000)
 
-case class Dump(entity: String = "",
-  outputFilename: String = "",
-  header: Boolean = false,
-  batchSize: Int = 0,
-  attributeList: Option[Seq[String]] = None,
-  attributeListFilename: Option[String] = None,
-  statusFrequency: Int = 1000,
+/**
+ *  Create a key file for a single entity. A key file contains the primary key
+ *  and no other attributes. The name of the file, the prefix, should indicate
+ *  the entity somehow although that is not a requirement.
+ */
+case class CreatePartitions(entity: String = "",
+  /** List of attributes to dump, if None, dump just the primary key. */
+  attributes: Option[Seq[String]] = Option(Nil),
+  outputFilePrefix: String = "",
+  chunkSize: Int = 2000000,
   attributeSeparator: String = ",",
   recordSeparator: String = "\n",
-  recordProcessor: fs2.Pipe[Task, (sdk.Entity, Int), (sdk.Entity, Int)] = fs2.pipe.id,
-  toOutputProcessor: fs2.Pipe[Task, sdk.Entity, String] = StreamHelpers.defaultMakeOutputRow)
+  pconcurrency: Int = 4)
 
-object program extends sdk.CrmAuth with sdk.SoapHelpers {
+/**
+ * Dump an entity.
+ */
+case class Dump(entity: String = "",
+  outputFilename: String = "",
+  header: Boolean = true,
+  batchSize: Int = 0, // usually cannot be greate than 5,000
+  attributeList: Option[Seq[String]] = None,
+  attributeListFilename: Option[String] = None,
+  statusFrequency: Int = 100000,
+  attributeSeparator: String = ",",
+  recordSeparator: String = "\n",
+  /**
+   * Run an Entity (a record) through a processor that could
+   *  transform it in some way.
+   */
+  recordProcessor: fs2.Pipe[Task, (sdk.Entity, Int), (sdk.Entity, Int)] = fs2.pipe.id,
+  /**
+   * Convert a record from CRM (an Entity) into an output string suitable
+   *  for whatever output format you want.
+   */
+  toOutputProcessor: fs2.Pipe[Task, sdk.Entity, String] = defaultMakeOutputRow)
+
+object program {
 
   import sdk.metadata._
   import sdk._
@@ -89,6 +140,8 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
       .action((x, c) => c.copy(leaseTime = x))
     opt[Double]("renewal-quantum").text(s"Renewal fraction of leaseTime. Default is ${defaultConfig.leaseTimeRenewalFraction}")
       .action((x, c) => c.copy(leaseTimeRenewalFraction = x))
+    //    opt[Int]("connectionPoolIdelTimeoutInSec").text(s"If you get idle timeouts, make this larger. Default is ${defaultConfig.connectionPoolIdelTimeoutInSec}").
+    //      action((x, c) => c.copy(connectionPoolIdelTimeoutInSec = x))
 
     opt[Int]("parallelism").text("Parallelism.").
       validate(con =>
@@ -100,8 +153,10 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
         if (con < 1 || con > 16) failure("Concurrency must be between 1 and 32")
         else success).
       action((x, c) => c.copy(concurrency = x))
-    opt[Int]("http-retries").text("# of http retries").
+    opt[Int]("http-retries").text(s"# of http retries. Default is ${defaultConfig.httpRetrys}").
       action((x, c) => c.copy(httpRetrys = x))
+    opt[Int]("retry-pause").text(s"Pause between retries in seconds. Default is ${defaultConfig.pauseBetweenRetriesInSeconds}").
+      action((x, c) => c.copy(pauseBetweenRetriesInSeconds = x))
 
     help("help").text("Show help")
     note("")
@@ -161,7 +216,7 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
     note("")
 
     cmd("query").action((_, c) => c.copy(mode = "query")).
-      text("Run a query. Entity names should be schema names e.g. Contact").
+      text("Run a query. Entity names should be logical names e.g. contact").
       children(
         opt[String]('r', "url").optional().valueName("<url>").text("Organization service url.").
           action((x, c) => c.copy(url = x)),
@@ -176,6 +231,18 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
           .action((x, c) => c.copy(queryFilters = c.queryFilters :+ x)),
         opt[Unit]("count").text("Count records for the given entity name expressed in the filters.")
           .action((x, c) => c.copy(queryType = "countEntities")),
+        opt[Int]("keyfile-chunksize").text("Number of keys per key file.").
+          action((x, c) => c.copy(keyfileChunkSize = x)),
+        opt[String]("create-partition").text("Create a set of persistent primary key partitions for entity.").
+          action((x, c) => c.copy(keyfileEntity = x, queryType = "partition")),
+        opt[Int]("part-concurrency").text("Concurrency per partition.").
+          action((x, c) => c.copy(pconcurrency = x)),
+        opt[Int]("keyfile-chunk-fetch-size").text("Fetch size when using a keyfile to dump records.").
+          action((x, c) => c.copy(keyfileChunkFetchSize = x)),         
+          opt[Boolean]("ignore-keyfiles").text("Ignore keyfiles during a dump, if present for an entity.").
+          action((x, c) => c.copy(ignoreKeyFiles = x)),
+        opt[String]("partition-prefix").text("Prefix for partitions files. Defaults to entity name.").
+          action((x, c) => c.copy(keyfilePrefix = x)),
         opt[String]("dump").valueName("<entity name interpreted as a regex>").text("Dump entity data into file. Default output file is 'entityname'.csv.").
           action((x, c) => c.copy(queryType = "dump", dump = c.dump.copy(entity = x))),
         opt[String]("output-filename").valueName("<dump filename>").text("Dump file name").
@@ -189,8 +256,7 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
         opt[String]("attribute-file").text("File of attributes, one per line.").
           action((x, c) => c.copy(dump = c.dump.copy(attributeListFilename = Some(x)))),
         opt[String]("attributes").text("Comma separate list of attributes to dump.").
-          action((x, c) =>
-            c.copy(dump = c.dump.copy(attributeList = Some(x.split(","))))))
+          action((x, c) => c.copy(dump = c.dump.copy(attributeList = Some(x.split(","))))))
     note("Attribute file content and attributes specified in --attributes are merged.")
 
     cmd("test").action((_, c) => c.copy(mode = "test")).text("Run some tests.").
@@ -252,16 +318,24 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
 
     val start = Instant.now
     println(s"Program start: ${instantString}")
-    config.mode match {
-      case "discovery" => discovery(config)
-      case "auth" => auth(config)
-      case "metadata" => metadata(config)
-      case "create" => create(config)
-      case "query" => query(config)
-      case "entity" => entity(config)
-      case "test" => test(config)
+    try {
+      config.mode match {
+        case "discovery" => discovery(config)
+        case "auth" => auth(config)
+        case "metadata" => metadata(config)
+        case "create" => create(config)
+        case "query" => query(config)
+        case "entity" => entity(config)
+        case "test" => test(config)
+      }
+    } catch {
+      case scala.util.control.NonFatal(e) =>
+        logger.error(e)("Error occurred at the top level.")
+        println("An unexpected and non-recoverable error during processing. Processing has stopped.")
+        println("Error: " + e.getMessage)
+    } finally {
+      Http.shutdown
     }
-    Http.shutdown
     val stop = Instant.now
     println(s"Program stop: ${instantString}")
     val elapsed = Duration.between(start, stop)
@@ -376,6 +450,8 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
    */
   def query(config: Config): Unit = {
 
+    def stdout: Sink[Task, String] = pipe.lift((line: String) => Task.delay(println(line)))
+
     /** Collect entities out of the envelope. */
     val toEntities: Pipe[Task, Envelope, Seq[Entity]] = pipe.collect {
       _ match {
@@ -395,8 +471,8 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
         val dump = config.dump
         val entity = config.dump.entity
         val outputFile = if (config.dump.outputFilename.isEmpty) s"$entity.csv" else config.dump.outputFilename
-        //println(s"Dump retrievable entity attributes for entity ${entity} to file ${outputFile}")
 
+        import scala.xml._
         import crm.sdk.metadata._
         import crm.sdk.metadata.readers._
         import crm.sdk._
@@ -406,8 +482,10 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
         import fs2.async.immutable._
         import fs2.util._
         import java.util.concurrent.Executors
+        import java.nio.file._
 
-        val tpool = Executors.newWorkStealingPool(config.parallelism + 1)
+        //val tpool = Executors.newWorkStealingPool(config.parallelism + 1)
+        implicit val tpool = DaemonThreads(config.parallelism + 1)
         implicit val ec = scala.concurrent.ExecutionContext.fromExecutor(tpool)
         implicit val strategy = Strategy.fromExecutionContext(ec)
         implicit val reader = retrieveMultipleRequestReader
@@ -428,49 +506,11 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
           ent.copy(attributes = merged)
         }
 
-        import StreamHelpers._
-
         /** Convenience function to get the auth. */
         def orgAuthF = {
           logger.info("Renewing org auth.")
           orgServicesAuthF(Http, config.username, config.password, config.url, config.region, config.leaseTime)
         }
-
-        /** Stream of valid auths every `d` minutes. */
-        val auths =
-          time.awakeEvery[Task]((config.leaseTimeRenewalFraction * config.leaseTime).minutes).evalMap { _ =>
-            Task.fromFuture(orgAuthF)
-          }
-
-        /** Create a stream of SOAP envelopes that are the result of a request to the server. */
-        def envelopes(http: HttpExecutor, entity: String, columns: ColumnSet,
-          batchSize: Int = 0, authTokenSignal: Signal[Task, CrmAuthenticationHeader]) = {
-          val initialState = (Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = batchSize)), true)
-          Stream.unfoldEval(initialState) { t =>
-            if (!t._2) Task.now(None)
-            else {
-              val q = QueryExpression(entity, columns = columns, pageInfo = t._1.getOrElse(EmptyPagingInfo))
-              logger.info(s"Issuing query expression: $q")
-              val xml = CrmXmlWriter.of[QueryExpression].write(q).asInstanceOf[scala.xml.Elem]
-              authTokenSignal.get.flatMap { auth =>
-                getMultipleRequestPage(http, xml, auth, t._1, retrys = config.httpRetrys).map {
-                  _ match {
-                    case Xor.Right((e, pagingOpt, more)) => Some((e, (pagingOpt, more)))
-                    case Xor.Left(t) => throw t
-                    case _ => None
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        /** Compose an always fresh auth with a call to get SOAP response Envelopes. */
-        def data(http: HttpExecutor, entity: String, columns: ColumnSet, batchSize: Int = 0, initial: CrmAuthenticationHeader) =
-          Stream.eval(signalOf[Task, CrmAuthenticationHeader](initial)).flatMap { authTokenSignal =>
-            auths.evalMap(newToken => authTokenSignal.set(newToken)).drain mergeHaltBoth
-              envelopes(http, entity, columns, batchSize, authTokenSignal)
-          }
 
         /** Create a stream that emits the single-line header or does not emit anything. */
         def headerStream(cols: Seq[String]): Stream[Task, String] =
@@ -481,6 +521,45 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
             Stream.emit(header)
           } else Stream.empty
 
+        val authRenewalTimeInMin = (config.leaseTimeRenewalFraction * config.leaseTime).toInt
+        val initialState = (Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = 0)), true)
+
+        def query(entity: String, columns: ColumnSet, pi: Option[PagingInfo]) = {
+          QueryExpression(entity, columns, pageInfo = pi.getOrElse(EmptyPagingInfo))
+        }
+
+        /** For getting a specific list of entities based on guids */
+        def fetchInIdList(entity: String, id: String, guids: Traversable[String]) =
+          <fetch returntotalrecordcount='true' mapping='logical'>
+            <entity name={ entity }>
+              <filter type='and'>
+                <condition attribute={ id } operator='in'>
+                  { guids.map(g => <value>{g}</value>) }
+                </condition>
+              </filter>
+            </entity>
+          </fetch>
+
+        /** Read ids from a file. */
+        def readIds(idFilename: String): Stream[Task, String] =
+          io.file.readAll[Task](Paths.get(idFilename), 5000)
+            .through(text.utf8Decode)
+            .through(text.lines)
+            .filter(s => !s.trim.isEmpty && !s.startsWith("#"))
+
+        /** Process envelopes and make string rows. */
+        def envelopesToStringRows(entityDesc: EntityDescription, cols: Traversable[String])(e: Envelope) =
+          Stream.emit(e)
+            .through(toEntities)
+            .flatMap { Stream.emits }
+            .through(fillInMissingAttributes(entityDesc, cols.toSet))
+            .zipWithIndex
+            .through(dump.recordProcessor)
+            .through(reportEveryN(dump.statusFrequency, (ent: sdk.Entity, index: Int) => {
+              Task.delay(println(s"$instantString: ${entityDesc.logicalName}: Processed $index records."))
+            }))
+            .through(dump.toOutputProcessor)
+
         /**
          *  Dump an entity. The dump will occur when the Stream is run.
          *  A dump can take a long time to run so the output may be
@@ -489,26 +568,16 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
          *  @return stream of output messages.
          */
         def dumpEntity(http: HttpExecutor, orgAuth: CrmAuthenticationHeader,
-          entityDesc: EntityDescription, cols: Seq[String], outputFile: String, header: Boolean = true) = {
+          entityDesc: EntityDescription, cols: Columns,
+          outputFile: String, header: Boolean = true,
+          envelopes: Stream[Task, Envelope]): Stream[Task, String] = {
+
           val entity = entityDesc.logicalName
           logger.info(s"$entity: Columns to dump: $cols")
-          println(s"Dump retrievable entity attributes for entity ${entity} to file ${outputFile}")
-          val colSet = Columns(cols)
-          val rows =
-            data(http, entity, colSet, dump.batchSize, orgAuth).
-              through(toEntities).
-              flatMap { Stream.emits }.
-              // should not really need this...should be an error?
-              through(fillInMissingAttributes(entityDesc, cols.toSet)).
-              zipWithIndex.
-              through(dump.recordProcessor).
-              through(reportEveryN(dump.statusFrequency, (ent: sdk.Entity, index: Int) => {
-                Task.delay(println(s"$instantString: ${entity}: Processed $index records."))
-              })).
-              through(dump.toOutputProcessor)
+          val rows = envelopes.flatMap(envelopesToStringRows(entityDesc, cols.names))
 
           val header: Stream[Task, String] =
-            if (dump.header) headerStream(cols)
+            if (dump.header) headerStream(cols.names)
             else Stream.empty
 
           import java.nio.file.StandardOpenOption
@@ -519,9 +588,66 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
             map(_ => s"$entity: Completed dumping records.")
         }
 
+        /** Dump entity data using a page by page, sequential walk through.
+         *  
+         *  TODO: Change this to use a feed of ids into the same approach
+         *  used in `dumpEntityUsingKeyfile` so that it runs fast by default.
+         */
+        def dumpEntityUsingPaging(http: HttpExecutor, orgAuth: CrmAuthenticationHeader,
+          entityDesc: EntityDescription, cols: Seq[String],
+          outputFile: String, header: Boolean = true): Stream[Task, String] = {
+          val colSet = Columns(cols)
+
+          val qGenerator = query(entityDesc.logicalName, colSet, _: Option[PagingInfo])
+
+          dumpEntity(http, orgAuth,
+            entityDesc, colSet,
+            outputFile, header,
+            envelopesStream(http, orgAuth, orgAuthF, authRenewalTimeInMin, initialState,
+              qGenerator, config.httpRetrys, config.pauseBetweenRetriesInSeconds))
+        }
+
+        /** Dump entity data using a parallel process based on a key file. */
+        def dumpEntityUsingKeyfile(http: HttpExecutor, orgAuth: CrmAuthenticationHeader,
+          entityDesc: EntityDescription, cols: Seq[String],
+          outputFile: String, header: Boolean = true, keyfile: String): Stream[Task, String] = {
+
+          println(s"Dump for ${entityDesc.logicalName} using key file $keyfile")
+          val colSet = Columns(cols)
+
+          val idStream =
+            readIds(keyfile).vectorChunkN(config.keyfileChunkFetchSize).through(Stream.emit)
+
+          def mkQuery(ids: Traversable[String], ps: Option[PagingInfo]) =
+            FetchExpression(fetchInIdList(entityDesc.logicalName,
+              entityDesc.primaryId, ids), ps.getOrElse(PagingInfo()))
+
+          def toEnvStream(signal: Signal[Task, CrmAuthenticationHeader]) =
+            envelopesFromInput[Envelope, Traversable[String], FetchExpression](http, signal,
+              mkQuery _,
+              config.httpRetrys, config.pauseBetweenRetriesInSeconds) _
+
+          def estreams(signal: Signal[Task, CrmAuthenticationHeader]) =
+            idStream.flatMap(_.map(toEnvStream(signal)))
+
+          // Wrap up the streams of streams with a "renewing" auth
+          val outer =
+            Stream.eval(fs2.async.signalOf[Task, CrmAuthenticationHeader](orgAuth)).flatMap { authTokenSignal =>
+              auths(orgAuthF, authRenewalTimeInMin).evalMap(newToken => authTokenSignal.set(newToken))
+                .drain
+                .mergeHaltBoth(estreams(authTokenSignal))
+            }
+
+          val joined = fs2.concurrent.join[Task, Envelope](config.pconcurrency)(outer)
+
+          dumpEntity(http, orgAuth, entityDesc, colSet, outputFile, header, joined)
+        }
+
+        def mkKeysFile(ename: String) = ename + ".keys"
+
         def output(http: HttpExecutor): Stream[Task, Stream[Task, String]] =
           fs2.Stream.eval(Task.fromFuture(orgAuthF)).flatMap { orgAuth =>
-            val schemaTask = Task.fromFuture(entityMetadata(Http, orgAuth, config.url))
+            val schemaTask = Task.fromFuture(entityMetadata(http, orgAuth, config.url))
             Stream.eval(schemaTask).flatMap { xor =>
               xor match {
                 case Xor.Right(schema) =>
@@ -537,39 +663,49 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
                   val spec = {
                     val _spec = entityAttributeSpec(possibleFilters, schema)
                     _spec
-                  }                  
+                  }
 
                   Stream.emits(spec.keySet.toSeq).map { entity =>
                     val cols = spec(entity)
+                    
                     val entityDesc = findEntity(entity, schema).
                       getOrElse(throw new RuntimeException(s"Unable to find metadata for entity $entity"))
-                    logger.info(s"$entity: Columns to dump: $cols")                    
-                    val outputFile = s"$entity.csv"
-                    val str = dumpEntity(http, orgAuth, entityDesc, cols, outputFile, dump.header)
+                    
+                      val outputFile = s"$entity.csv"
+
+                    val keyFile = mkKeysFile(entity)
+                    val keyFileExists = Files.exists(Paths.get(keyFile))
+
+                    val str =
+                      if (keyFileExists && !config.ignoreKeyFiles)
+                        dumpEntityUsingKeyfile(http, orgAuth, entityDesc, cols, outputFile, dump.header, keyFile)
+                      else
+                        dumpEntityUsingPaging(http, orgAuth, entityDesc, cols, outputFile, dump.header)
+
                     str.onError { t =>
-                      logger.error(t)("Error during processing")
-                      Stream(s"Error during processing: ${t.getMessage}")
+                      logger.error(t)("Error processing")
+                      Stream(s"Error processing: ${t.getMessage}")
                     }
                   }
 
                 case Xor.Left(error) =>
-                  Stream.emit(Stream.emit(s"Error obtaining org schema: $error}"))
+                  Stream.emit(Stream.emit(s"Error during start of processing: $error}"))
               }
             }
           }
-        def stdout: Sink[Task, String] = pipe.lift((line: String) => Task.delay(println(line)))
 
-        val outputs = fs2.concurrent.join[Task, String](config.concurrency) {
-          Stream.bracket(acquire)(http => output(http), release)
-        }.to(stdout)
+        val outputs = Stream.bracket(acquire)(http =>
+          fs2.concurrent.join[Task, String](config.concurrency) { output(http) }.to(stdout),
+          release)
 
         outputs.run.unsafeAttemptRun match {
           case Left(t) =>
-            logger.error(t)("Error occured and was not caught elsewhere.")
+            logger.error(t)("Error occurred and was not caught elsewhere.")
             println(s"Error occured during processing: ${t.getMessage}")
           case _ =>
         }
         tpool.shutdown
+        tpool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
 
       case "countEntities" =>
 
@@ -587,7 +723,6 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
         //i:nil="true"
 
         import responseReaders._
-        import StreamHelpers._
         import sdk.metadata.readers._
         import crm.sdk._
         import java.util.concurrent.Executors
@@ -596,29 +731,10 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
         implicit val ec = scala.concurrent.ExecutionContext.fromExecutor(tpool)
         implicit val strategy = Strategy.fromExecutionContext(ec)
         implicit val reader = retrieveMultipleRequestReader
+        implicit val sheduler = Scheduler.fromFixedDaemonPool(2, "auth-getter")
 
-        /**
-         * Make a multiple request and generate a stream of envelopes until the
-         * last page of data is obtained.
-         */
-        def envelopes(http: HttpExecutor, entity: String, id: String, orgAuth: CrmAuthenticationHeader, pageSize: Int = 5000) = {
-          val initialState = (Some(PagingInfo(page = 1, count = pageSize, returnTotalRecordCount = true)), true)
-          Stream.unfoldEval[Task, (Option[PagingInfo], Boolean), Envelope](initialState) { t =>
-            if (!t._2) Task.now(None)
-            else {
-              val q = QueryExpression(entity, ColumnSet(id), pageInfo = t._1.getOrElse(EmptyPagingInfo))
-              logger.debug(s"Issuing query expression: $q")
-              val xml = CrmXmlWriter.of[QueryExpression].write(q).asInstanceOf[scala.xml.Elem]
-              getMultipleRequestPage(http, xml, orgAuth, t._1, retrys = config.httpRetrys) map {
-                _ match {
-                  case Xor.Right((e, pagingOpt, more)) => Some((e, (pagingOpt, more)))
-                  case Xor.Left(t) => throw t
-                  case _ => None
-                }
-              }
-            }
-          }
-        }
+        def query(entity: String, id: String)(pi: Option[PagingInfo]) =
+          QueryExpression(entity, ColumnSet(id), pageInfo = pi.getOrElse(EmptyPagingInfo))
 
         /**
          * Extract record count from an Entity Collection Result. Look for
@@ -632,6 +748,8 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
           }
 
         def orgAuthF = orgServicesAuthF(Http, config.username, config.password, config.url, config.region, config.leaseTime)
+        val authRenewalTimeInMin = (config.leaseTimeRenewalFraction * config.leaseTime).toInt
+        val initialState = (Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = 0)), true)
 
         val output = orgAuthF.flatMap { orgAuth =>
           entityMetadata(Http, orgAuth, config.url).map {
@@ -660,12 +778,16 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
                 println("Entries with -1 count result indicate an error occured during processing for that entity.")
                 println("Record counts")
 
+                val keypipe = pipe.id[Task, Envelope]
+
                 Stream.bracket(acquire)(http =>
                   concurrent.join[Task, (String, Int)](config.concurrency) {
                     Stream.emits(entityNamesToProcess).map { ename =>
                       val id = primaryId(ename, schema) getOrElse s"${ename}id"
                       logger.debug(s"Getting counts for entity: $ename with $id")
-                      envelopes(http, ename, id, orgAuth).
+                      envelopesStream(http, orgAuth, orgAuthF,
+                        authRenewalTimeInMin, initialState, query(ename, id), config.httpRetrys, config.pauseBetweenRetriesInSeconds).
+                        through(keypipe).
                         through(getEntityCollectionResultRecordCount).
                         through(pipe.sum).
                         through(pipe.lastOr(-1)).
@@ -693,6 +815,99 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
         val result = Await.result(output, Duration.Inf)
         tpool.shutdown
         println(result)
+        tpool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
+
+      case "partition" =>
+
+        val cp = CreatePartitions(config.keyfileEntity, chunkSize = config.keyfileChunkSize,
+          outputFilePrefix = config.keyfileEntity)
+        println(s"Creating partition for ${cp.entity}")
+
+        import responseReaders._
+        import sdk.metadata.readers._
+        import crm.sdk._
+        import java.util.concurrent.Executors
+
+        //val tpool = Executors.newWorkStealingPool(config.parallelism + 1)
+        implicit val tpool = DaemonThreads(config.parallelism + 1)
+        implicit val ec = scala.concurrent.ExecutionContext.fromExecutor(tpool)
+        implicit val strategy = Strategy.fromExecutionContext(ec)
+        implicit val reader = retrieveMultipleRequestReader
+        implicit val sheduler = Scheduler.fromFixedDaemonPool(2, "auth-getter")
+
+        def query(entity: String, id: String)(pi: Option[PagingInfo]) =
+          QueryExpression(entity, ColumnSet(id), pageInfo = pi.getOrElse(EmptyPagingInfo))
+
+        /**
+         * Extract record count from an Entity Collection Result. Look for
+         *  the total record count or count any entitis found (backup).
+         */
+        def getPartitionValue(attr: String): Pipe[Task, Envelope, Seq[String]] =
+          pipe.collect {
+            _ match {
+              case Envelope(_, EntityCollectionResult(_, entities, _, _, _, _)) =>
+                entities.map(_.attributes(attr).text)
+            }
+          }
+
+        def orgAuthF = orgServicesAuthF(Http, config.username, config.password, config.url, config.region, config.leaseTime)
+        val authRenewalTimeInMin = (config.leaseTimeRenewalFraction * config.leaseTime).toInt
+        val initialState = (Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = 0)), true)
+        import java.nio.file._
+        val bits = List(StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
+
+        // For the moment this is overkill, but we want to be able to parallelise this. */
+        def output(http: HttpExecutor): Stream[Task, Stream[Task, String]] =
+          fs2.Stream.eval(Task.fromFuture(orgAuthF)).flatMap { orgAuth =>
+            val schemaTask = Task.fromFuture(entityMetadata(http, orgAuth, config.url))
+            Stream.eval(schemaTask).flatMap { xor =>
+              xor match {
+                case Xor.Right(schema) =>
+                  println(s"Found ${schema.entities.size} entities to consider.")
+                  val spec = entityAttributeSpec(Seq(cp.entity), schema)
+                  val entityToProcess = schema.entities.filter(ent => spec.keySet.contains(ent.logicalName)).headOption
+
+                  println(s"Entity to process: ${cp.entity}")
+                  Stream.emits(Seq(cp.entity)).map { ename =>
+                    val id = primaryId(ename, schema) getOrElse s"${ename}id"
+                    logger.info(s"Partitioning entity: $ename using $id")
+
+                    val str = envelopesStream(http, orgAuth, orgAuthF,
+                      authRenewalTimeInMin, initialState, query(ename, id)).
+                      through(getPartitionValue(id)).
+                      flatMap(Stream.emits).
+                      zipWithIndex.
+                      through(reportEveryN(100000, (id: String, index: Int) => {
+                        Task.delay(println(s"$instantString: ${ename}: Processed $index records."))
+                      })).
+                      map(_ + "\n").
+                      through(text.utf8Encode).
+                      to(fs2.io.file.writeAllAsync[Task](Paths.get(cp.outputFilePrefix + ".keys"), bits)).
+                      map(_ => s"$ename Partitioning complete.")
+
+                    str.onError { e =>
+                      logger.error(e)(s"Error processing $ename")
+                      Stream(s"Error processing $ename: ${e.getMessage}")
+                    }
+                  }
+                case Xor.Left(error) =>
+                  Stream.emit(Stream.emit(s"Error during start of processing: $error}"))
+              }
+            }
+          }
+
+        val outputs = Stream.bracket(acquire)(http =>
+          fs2.concurrent.join[Task, String](config.concurrency) { output(http) }.to(stdout),
+          release)
+
+        outputs.run.unsafeAttemptRun match {
+          case Left(t) =>
+            logger.error(t)("Error occurred and was not caught elswhere.")
+            println("Lowlevel error occurred and was not caught elsewhere: ${t.getMessage}")
+          case _ =>
+        }
+        tpool.shutdown
+        tpool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
     }
   }
 
@@ -804,7 +1019,7 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
 
       val headers = Map("SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
 
-      val req = createPost(config.url) <:< headers << xml2(header.url).toString
+      val req = CrmAuth.createPost(config.url) <:< headers << xml2(header.url).toString
       println("req: " + req.toRequest)
       Http(req OKWithBody as.xml.Elem)
     }.map { resp =>
@@ -1030,7 +1245,7 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
   /**
    * Create a post request from a config object.
    */
-  def createPost(config: Config): Req = createPost(config.url)
+  def createPost(config: Config): Req = CrmAuth.createPost(config.url)
 
   /**
    * Wrap a raw XML request (should be the full <body> element) with a header and issue the request.
@@ -1040,7 +1255,7 @@ object program extends sdk.CrmAuth with sdk.SoapHelpers {
     import Defaults._
 
     val body = wrap(auth, requestBody)
-    val req = createPost(url getOrElse config.url) << body.toString
+    val req = CrmAuth.createPost(url getOrElse config.url) << body.toString
     Http(req OK as.xml.Elem)
   }
 

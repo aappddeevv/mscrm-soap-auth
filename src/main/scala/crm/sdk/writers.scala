@@ -18,7 +18,7 @@ import play.api.libs.functional.syntax._
 import scala.language.implicitConversions
 
 /**
- *  General purpose XML writer.
+ *  General purpose XML writer typeclass.
  */
 trait CrmXmlWriter[-A] {
   def write(a: A): xml.NodeSeq
@@ -34,12 +34,46 @@ trait CrmXmlWriter[-A] {
 
 trait DefaultCrmXmlWriters {
 
+  import scala.xml._
+
+  /**
+   * Fast node transformer.
+   *
+   * Use like:
+   * {{{
+   * def changeLabel(node: Node): Node =
+   *   trans(node, {case e: Elem => e.copy(label = "b")})
+   * }}}
+   */
+  def trans(node: Node, pf: PartialFunction[Node, Node]): Node =
+    pf.applyOrElse(node, identity[Node]) match {
+      case e: Elem => e.copy(child = e.child map (c => trans(c, pf)))
+      case other => other
+    }
+
   /**
    * Get a writer without having to use the implicitly syntax.
    */
   def of[A](implicit r: CrmXmlWriter[A]): CrmXmlWriter[A] = r
-  
-  
+
+  /** Assumes fetch is the top level Elem. */
+  implicit val fetchXmlWriter: CrmXmlWriter[FetchExpression] = CrmXmlWriter { fe =>
+    import scala.xml._
+
+    // Adding paging info to the request.
+    val page = new UnprefixedAttribute("page", fe.pageInfo.page.toString, Null)
+    val count = new UnprefixedAttribute("count", fe.pageInfo.count.toString, Null)
+    val pagingCookie = fe.pageInfo.cookie.map(c => new UnprefixedAttribute("paging-cookie", c.toString, Null)) getOrElse Null
+
+    val withPagingInfo = fe.xml % page % count % pagingCookie
+
+    <query i:type="b:FetchExpression" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+      <b:Query>
+        { withPagingInfo.toString }
+      </b:Query>
+    </query>
+  }
+
   implicit val queryExpressionWriter: CrmXmlWriter[QueryExpression] = CrmXmlWriter { qe =>
     /**
      * <query i:type="b:QueryExpression" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
@@ -80,6 +114,12 @@ trait DefaultCrmXmlWriters {
       <b:LinkEntities/>
       { qe.pageInfo.write }
     </query>
+  }
+
+  implicit def conditionsWriter[T] = new CrmXmlWriter[Seq[ConditionExpression[T]]] {
+    def write(ce: Seq[ConditionExpression[T]]) =
+      <b:Conditions>
+      </b:Conditions>
   }
 
   /** Uses b namespace. */

@@ -18,6 +18,10 @@ which is the default, then you can tail the mscrm-auth.log file to watch the inc
 data and results being requested and fetched. The debug log level is very verbose and
 not suitable for normal use.
 
+The library is designed for high performance data dumping. The command line
+options are a bit cumbersome so you can control the performance envelope more
+succintly.
+
 ##Capabilities
 
 metadata

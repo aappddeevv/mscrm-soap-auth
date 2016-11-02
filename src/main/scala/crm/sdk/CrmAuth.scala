@@ -29,6 +29,8 @@ import cats.data._
 import crm.sdk.driver.CrmException
 import scala.concurrent.ExecutionContext
 import fs2._
+import dispatch.retry._
+import scala.concurrent.duration._
 
 /**
  * Authentication information for creating security headers.
@@ -54,7 +56,8 @@ trait CrmAuth {
   }
 
   /**
-   * Issue a CRM Online SOAP authentication request.
+   * Issue a CRM Online SOAP authentication request. Since this is so fundamental,
+   * an exception is thrown if an error occurs. Retrys are attempted.
    *
    * @return CrmAuthenticationHeader An object containing the SOAP header and
    *         expiration date/time of the header.
@@ -64,9 +67,13 @@ trait CrmAuth {
    *            Password of a valid CRM user.
    * @param url
    *            The Url of the CRM Online organization
-   *            (https://org.crm.dynamics.com).).
+   *            (https://org.crm.dynamics.com).). Is this right?
+   * @param leaseTime Lease time for auth
+   * @param numRetrys Number of times to retry if the auth fails.
+   * @param pauseInSeconds Pause between retrys, in seconds.
    */
-  def GetHeaderOnline(username: String, password: String, url: String, http: HttpExecutor = Http, leaseTime: Int = 120): Future[CrmAuthenticationHeader] = {
+  def GetHeaderOnline(username: String, password: String, url: String, http: HttpExecutor = Http,
+    leaseTime: Int = 120, numRetrys: Int = 5, pauseInSeconds: Int = 15)(implicit ec: ExecutionContext): Future[CrmAuthenticationHeader] = {
 
     val urnAddress = GetUrnOnline(url)
     val ts = timestamp(leaseTime)
@@ -109,28 +116,42 @@ trait CrmAuth {
     logger.debug("GetHeaderOnline:request: " + xml)
     logger.debug("GetHeaderOnline:request: " + svchost.toRequest)
 
-    http(svchost OK as.xml.Elem).map { xml =>
-      logger.debug("GetHeaderOnline:response: " + xml)
+    def makeAuthRequest() = {
+      logger.debug("GetHeaderOnline:request: " + xml)
+      logger.debug("GetHeaderOnline:request: " + svchost.toRequest)
 
-      try {
-        val cipherElements = xml \\ "CipherValue"
-        val token1 = cipherElements(0).text
-        val token2 = cipherElements(1).text
+      http(svchost OK as.xml.Elem).map { xml =>
+        logger.debug("GetHeaderOnline:response: " + xml)
 
-        //val keyIdentiferElements = xml \\ "wsse:KeyIdentifier"
-        val keyIdentiferElements = xml \\ "KeyIdentifier"
-        val keyIdentifer = keyIdentiferElements(0).text
+        try {
+          val cipherElements = xml \\ "CipherValue"
+          val token1 = cipherElements(0).text
+          val token2 = cipherElements(1).text
 
-        //val tokenExpiresElements = xml \\ "wsu:Expires"
-        val tokenExpiresElements = xml \\ "Expires"
-        val tokenExpires = tokenExpiresElements(0).text
+          //val keyIdentiferElements = xml \\ "wsse:KeyIdentifier"
+          val keyIdentiferElements = xml \\ "KeyIdentifier"
+          val keyIdentifer = keyIdentiferElements(0).text
 
-        val c = DatatypeConverter.parseDateTime(tokenExpires)
-        CrmAuthenticationHeader(CreateSoapHeader(url, keyIdentifer, token1, token2), keyIdentifer, token1, token2, c.getTime(), url)
-      } catch {
-        case scala.util.control.NonFatal(e) =>
-          logger.error(e)("Unable to obtain auth, error during parsing XML")
-          throw e
+          //val tokenExpiresElements = xml \\ "wsu:Expires"
+          val tokenExpiresElements = xml \\ "Expires"
+          val tokenExpires = tokenExpiresElements(0).text
+
+          val c = DatatypeConverter.parseDateTime(tokenExpires)
+          CrmAuthenticationHeader(CreateSoapHeader(url, keyIdentifer, token1, token2), keyIdentifer, token1, token2, c.getTime(), url)
+        } catch {
+          case scala.util.control.NonFatal(e) =>
+            logger.error(e)("Unable to obtain auth, error during parsing XML")
+            throw e
+        }
+      }.either
+    }
+
+    retry.Pause(numRetrys, pauseInSeconds.seconds)(() => makeAuthRequest()).map {
+      _ match {
+        case Right(auth) => auth
+        case Left(err) =>
+          logger.error(err)("Error obtaining auth")
+          throw err
       }
     }
 
@@ -379,8 +400,9 @@ trait CrmAuth {
    * The final XML request envelope is debug logged. An exception is thrown
    * if a Fault or error is encountered. Errors and SOAP faults are also logged.
    */
-  def getMultipleRequestPage[T <: Envelope](http: HttpExecutor, xmlBody: scala.xml.Elem, orgAuth: CrmAuthenticationHeader, pageInfo: Option[PagingInfo], retrys: Int = 3)(
-    implicit ec: ExecutionContext, strategy: Strategy, reader: XmlReader[T]): Task[Throwable Xor (Envelope, Option[PagingInfo], Boolean)] = Task.fromFuture {
+  def getMultipleRequestPage[T <: Envelope](http: HttpExecutor, xmlBody: scala.xml.Elem, orgAuth: CrmAuthenticationHeader, pageInfo: Option[PagingInfo],
+    retrys: Int = 5, pauseInSeconds: Int = 30)(
+      implicit ec: ExecutionContext, strategy: Strategy, reader: XmlReader[T]): Task[Throwable Xor (Envelope, Option[PagingInfo], Boolean)] = Task.fromFuture {
     import responseReaders._
 
     def makeRequest = {
@@ -427,10 +449,9 @@ trait CrmAuth {
         }
       }
     }
-    import dispatch.retry._
     implicit def xor[A, B]: Success[Xor[A, B]] = new Success(_.isRight)
-
-    retry.Directly(retrys)(() => makeRequest)
+    retry.Pause(retrys, pauseInSeconds.seconds)(() => makeRequest)
+    //makeRequest
   }(strategy, ec)
 
   /**
