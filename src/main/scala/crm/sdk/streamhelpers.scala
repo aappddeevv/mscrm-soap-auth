@@ -32,6 +32,7 @@ import CrmAuth._
  * CRM server requests.
  */
 trait StreamHelpers {
+  import org.apache.commons.lang3.StringEscapeUtils._
 
   private[this] lazy val logger = getLogger
 
@@ -49,7 +50,17 @@ trait StreamHelpers {
         }
     }
 
-  import org.apache.commons.lang3.StringEscapeUtils._
+  /**
+   * Combine all attributes and formatted values to a map. Rename
+   *  formatted value attribute names by appending a suffix.
+   *  
+   *  @param includeFormatted true, include formatted values, otherwise do not include
+   */
+  def toAttributeMap(includeFormatted: Boolean = true, suffix: String = "_formatted")(e: sdk.Entity): Pipe[Task, sdk.Entity, Map[String, String]] =
+    pipe.lift { ent =>
+      ent.attributes.mapValues(_.text) ++ 
+        (if(includeFormatted) ent.formattedAttributes.map { case (k, v) => (k + suffix, v) } else Map())
+    }
 
   /**
    * Strip quotes, backslashes, replace newlines with stringified versions,
@@ -57,27 +68,41 @@ trait StreamHelpers {
    */
   def cleanString(s: String) =
     escapeCsv(s.replace("\\", "")
-        .replace("\"", "")
-        .replace("\r", "")
-        .replace("\n", "\\n")
-        .replaceAll("[^\\u0000-\\uFFFF]", ""))
+      .replace("\"", "")
+      .replace("\r", "")
+      .replace("\n", "\\n")
+      .replaceAll("[^\\u0000-\\uFFFF]", ""))
 
   /**
    * Pipe that makes CSV output rows. All of the attributes in the
    *  entity are output. If you need fewer attributes, change the entity
    *  prior to this pipe. Slow as anything. For safety, removes
-   *  all backslashes and all double quote characters.
+   *  all backslashes and all double quote characters. Cols are
+   *  ordered using `cols`.
+   *
+   *  @param cols Columns to output. cols order dictates output order.
    *
    *  TODO: Don't be slow.
    */
-  def makeOutputRow(rs: String = ",", eor: String = "\n")(cols: Traversable[String]): Pipe[Task, sdk.Entity, String] =
+  def makeOutputRowFromEntity(rs: String = ",", eor: String = "\n")(cols: Traversable[String],
+    outputFormattedValues: Boolean = false): Pipe[Task, sdk.Entity, String] =
     pipe.lift { ent =>
       val keys = ent.attributes.keys.toList.sorted
       keys.map(ent.attributes(_).text).map(cleanString(_)).mkString(rs) + eor
     }
 
+  /** Make an output with the attribute order (from the keys) are dictated by cols. 
+   *  Missing keys in the input map are mapped to an emptyValue so the output
+   *  always has 
+   */
+  def makeOutputRowFromMap(rs: String = ",", eor: String ="\n", emptyValue: String = "")(cols: Traversable[String]): Pipe[Task, Map[String, String], String] =
+    pipe.lift { m =>
+      cols.map(c => m.get(c).map(v => (c, v)).getOrElse(c, emptyValue)).mkString(rs) + eor
+    }
+  
+  
   //  def defaultMakeOutputRow(cols: Traversable[String]) = makeOutputRow() _
-  val defaultMakeOutputRow = makeOutputRow()(Seq())
+  val defaultMakeOutputRow = makeOutputRowFromEntity()(Seq())
 
   /**
    * Convert a list of strings to list of regexs useful for match

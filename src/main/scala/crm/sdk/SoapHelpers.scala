@@ -389,7 +389,8 @@ sealed trait Query
 case class QueryExpression(entityName: String, columns: ColumnSet = AllColumns(),
   pageInfo: PagingInfo = PagingInfo(), lock: Boolean = false) extends Query
 
-/** Expression with a fully formed fetch XML fragment. The fragment
+/**
+ * Expression with a fully formed fetch XML fragment. The fragment
  *  is altered with paging information and other enhancements as
  *  needed when the fetch xml query is issued. The element `fetch`
  *  should be the toplevel element. This class is really a "tag'
@@ -398,7 +399,7 @@ case class QueryExpression(entityName: String, columns: ColumnSet = AllColumns()
 case class FetchExpression(xml: scala.xml.Elem, pageInfo: PagingInfo = PagingInfo()) extends Query
 
 object FetchExpression {
-  def fromXML(xml: String, pagingInfo: PagingInfo = PagingInfo()) = 
+  def fromXML(xml: String, pagingInfo: PagingInfo = PagingInfo()) =
     FetchExpression(scala.xml.XML.loadString(xml), pagingInfo)
 }
 
@@ -492,7 +493,9 @@ object responseReaders {
   val body: XmlReader[scala.xml.NodeSeq] =
     (__ \ "Body").read
 
-  val fault: XmlReader[scala.xml.NodeSeq] = (__ \ "Fault").read
+  val faultPath = (__ \ "Fault")
+
+  val fault: XmlReader[scala.xml.NodeSeq] = faultPath.read
 
   val retrieveMultipleResponse: XmlReader[xml.NodeSeq] =
     (__ \ "RetrieveMultipleResponse").read
@@ -536,9 +539,9 @@ object responseReaders {
     (__ \ "Message").read[String])(Fault.apply _)
 
   val reasonReader = (
-      XmlReader.pure(-1) and
-      (__ \\ "Reason").read[String])(Fault.apply _)
-    
+    XmlReader.pure(-1) and
+    (__ \\ "Reason").read[String])(Fault.apply _)
+
   implicit val pagingCookieReader =
     ((__ \\ "PagingCookie").read[String].filter(!_.trim.isEmpty).optional and
       (__ \\ "MoreRecords").read[Boolean] and
@@ -571,11 +574,12 @@ object responseReaders {
   /**
    * Reader that reads a Fault or the results of a RetrieveMultipleRequest.
    */
-  val retrieveMultipleRequestReader =
-    (responseHeaderReader and
+  val retrieveMultipleRequestReader = {
+    val tmp = (responseHeaderReader and
       (body andThen (
         (fault andThen ((detail andThen organizationServiceFault andThen faultReader) or reasonReader)) or
-        (retrieveMultipleResponse andThen retrieveMultipleResult andThen entityCollectionResultReader))))(Envelope.apply _)
-
+        (retrieveMultipleResponse andThen retrieveMultipleResult andThen entityCollectionResultReader))))
+    tmp(Envelope.apply _)
+  }
 }
   

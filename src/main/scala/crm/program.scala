@@ -75,7 +75,8 @@ case class Config(
   ignoreKeyFiles: Boolean = false,
   keyfileChunkFetchSize: Int = 5000,
   take: Option[Long] = None,
-  drop: Option[Long] = None)
+  drop: Option[Long] = None,
+  outputFormattedValues: Boolean = false)
 
 /**
  *  Create a key file for a single entity. A key file contains the primary key
@@ -92,7 +93,7 @@ case class CreatePartitions(entity: String = "",
   pconcurrency: Int = 4)
 
 /**
- * Dump an entity.
+ * Dump an entity. This structure is not really used.
  */
 case class Dump(entity: String = "",
   outputFilename: String = "",
@@ -235,6 +236,9 @@ object program {
           .action((x, c) => c.copy(queryFilters = c.queryFilters :+ x)),
         opt[Unit]("count").text("Count records for the given entity name expressed in the filters.")
           .action((x, c) => c.copy(queryType = "countEntities")),
+        opt[Unit]("output-formatted-values").text("Output formatted values in additition to the attribute values.")
+          .action((x, c) => c.copy(outputFormattedValues = true)),
+
         //        opt[Int]("keyfile-chunksize").text("Number of keys per key file.").
         //          action((x, c) => c.copy(keyfileChunkSize = x)),
         opt[String]("create-partition").text("Create a set of persistent primary key partitions for entity.").
@@ -266,6 +270,7 @@ object program {
         opt[String]("attributes").text("Comma separate list of attributes to dump.").
           action((x, c) => c.copy(dump = c.dump.copy(attributeList = Some(x.split(","))))))
     note("Attribute file content and attributes specified in --attributes are merged.")
+    note("All double quotes and backslashes are removed from dumped values. Formatted values are not dumped.")
 
     cmd("test").action((_, c) => c.copy(mode = "test")).text("Run some tests.").
       children(
@@ -540,7 +545,7 @@ object program {
         def fetchInIdList(entity: String, id: String, guids: Traversable[String], cols: Traversable[String]) =
           <fetch returntotalrecordcount='true' mapping='logical'>
             <entity name={ entity }>
-              { cols.map { a => <attribute name={a}/> } }
+              { cols.map { a => <attribute name={ a }/> } }
               <filter type='and'>
                 <condition attribute={ id } operator='in'>
                   { guids.map(g => <value>{ g }</value>) }
@@ -556,8 +561,10 @@ object program {
             .through(text.lines)
             .filter(s => !s.trim.isEmpty && !s.startsWith("#"))
 
-        /** Process envelopes and make string rows. */
-        def envelopesToStringRows(entityDesc: EntityDescription, cols: Traversable[String])(e: Envelope) =
+        /** Create a stream of output rows given an Envelope input. 
+         *  flatMap this into a stream of Envelopes.
+         */
+        def envelopesToStringRows(entityDesc: EntityDescription, cols: Traversable[String])(e: Envelope) = {
           Stream.emit(e)
             .through(toEntities)
             .flatMap { Stream.emits }
@@ -570,6 +577,7 @@ object program {
               Task.delay(println(s"$instantString: ${entityDesc.logicalName}: Processed $index records."))
             }))
             .through(dump.toOutputProcessor)
+        }
 
         /**
          *  Dump an entity. The dump will occur when the Stream is run.
