@@ -20,7 +20,8 @@ not suitable for normal use.
 
 The library is designed for high performance data dumping. The command line
 options are a bit cumbersome so you can control the performance envelope more
-succintly.
+succinctly. Some command line options do not work yet, but I'll be updating
+them shortly.
 
 ##Capabilities
 
@@ -36,7 +37,7 @@ auth
 query
 * Count all entities in an org.
 * Dump attributes for an entity to a file, basically an extract to CSV. The download can
-run very fast if you first cerate a "key" partition, it shoud be the fastest downloader
+run very fast if you first create a "key" partition, it shoud be the fastest downloader
 anywhere that is only constrained by memory size.
 
 other
