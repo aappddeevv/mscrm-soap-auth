@@ -15,6 +15,7 @@ import XmlReader._
 import play.api.libs.functional.syntax._
 import cats._
 import cats.data._
+import cats.implicits._
 import better.files._
 import java.io.{ File => JFile }
 import fs2._
@@ -72,7 +73,9 @@ case class Config(
   httpRetrys: Int = 10,
   pauseBetweenRetriesInSeconds: Int = 30,
   ignoreKeyFiles: Boolean = false,
-  keyfileChunkFetchSize: Int = 5000)
+  keyfileChunkFetchSize: Int = 5000,
+  take: Option[Long] = None,
+  drop: Option[Long] = None)
 
 /**
  *  Create a key file for a single entity. A key file contains the primary key
@@ -109,7 +112,8 @@ case class Dump(entity: String = "",
    * Convert a record from CRM (an Entity) into an output string suitable
    *  for whatever output format you want.
    */
-  toOutputProcessor: fs2.Pipe[Task, sdk.Entity, String] = defaultMakeOutputRow)
+  toOutputProcessor: fs2.Pipe[Task, sdk.Entity, String] = defaultMakeOutputRow // Traversable[String] => fs2.Pipe[Task, sdk.Entity, String] = defaultMakeOutputRow _)
+  )
 
 object program {
 
@@ -231,21 +235,25 @@ object program {
           .action((x, c) => c.copy(queryFilters = c.queryFilters :+ x)),
         opt[Unit]("count").text("Count records for the given entity name expressed in the filters.")
           .action((x, c) => c.copy(queryType = "countEntities")),
-        opt[Int]("keyfile-chunksize").text("Number of keys per key file.").
-          action((x, c) => c.copy(keyfileChunkSize = x)),
+        //        opt[Int]("keyfile-chunksize").text("Number of keys per key file.").
+        //          action((x, c) => c.copy(keyfileChunkSize = x)),
         opt[String]("create-partition").text("Create a set of persistent primary key partitions for entity.").
           action((x, c) => c.copy(keyfileEntity = x, queryType = "partition")),
-        opt[Int]("part-concurrency").text("Concurrency per partition.").
-          action((x, c) => c.copy(pconcurrency = x)),
+        //        opt[Int]("part-concurrency").text("Concurrency per partition.").
+        //          action((x, c) => c.copy(pconcurrency = x)),
         opt[Int]("keyfile-chunk-fetch-size").text("Fetch size when using a keyfile to dump records.").
-          action((x, c) => c.copy(keyfileChunkFetchSize = x)),         
-          opt[Boolean]("ignore-keyfiles").text("Ignore keyfiles during a dump, if present for an entity.").
-          action((x, c) => c.copy(ignoreKeyFiles = x)),
-        opt[String]("partition-prefix").text("Prefix for partitions files. Defaults to entity name.").
-          action((x, c) => c.copy(keyfilePrefix = x)),
+          action((x, c) => c.copy(keyfileChunkFetchSize = x)),
+        opt[Int]("take").text("Take n rows.").
+          action((x, c) => c.copy(take = Option(x))),
+        opt[Int]("drop").text("Drop leading n rows.").
+          action((x, c) => c.copy(drop = Option(x))),
+        opt[Unit]("ignore-keyfiles").text("Ignore keyfiles during a dump, if present for an entity.").
+          action((x, c) => c.copy(ignoreKeyFiles = true)),
+        //        opt[String]("partition-prefix").text("Prefix for partitions files. Defaults to entity name.").
+        //          action((x, c) => c.copy(keyfilePrefix = x)),
         opt[String]("dump").valueName("<entity name interpreted as a regex>").text("Dump entity data into file. Default output file is 'entityname'.csv.").
           action((x, c) => c.copy(queryType = "dump", dump = c.dump.copy(entity = x))),
-        opt[String]("output-filename").valueName("<dump filename>").text("Dump file name").
+        opt[String]("output-filename").valueName("<dump filename>").text("Dump file name. Default is entitityname.csv").
           action((x, c) => c.copy(dump = c.dump.copy(outputFilename = x))),
         opt[Unit]("header").text("Add a header to the output. Default is no header.").
           action((x, c) => c.copy(dump = c.dump.copy(header = true))),
@@ -529,12 +537,13 @@ object program {
         }
 
         /** For getting a specific list of entities based on guids */
-        def fetchInIdList(entity: String, id: String, guids: Traversable[String]) =
+        def fetchInIdList(entity: String, id: String, guids: Traversable[String], cols: Traversable[String]) =
           <fetch returntotalrecordcount='true' mapping='logical'>
             <entity name={ entity }>
+              { cols.map { a => <attribute name={a}/> } }
               <filter type='and'>
                 <condition attribute={ id } operator='in'>
-                  { guids.map(g => <value>{g}</value>) }
+                  { guids.map(g => <value>{ g }</value>) }
                 </condition>
               </filter>
             </entity>
@@ -552,6 +561,8 @@ object program {
           Stream.emit(e)
             .through(toEntities)
             .flatMap { Stream.emits }
+            .drop(config.drop getOrElse 0L)
+            .take(config.take getOrElse Long.MaxValue)
             .through(fillInMissingAttributes(entityDesc, cols.toSet))
             .zipWithIndex
             .through(dump.recordProcessor)
@@ -588,8 +599,9 @@ object program {
             map(_ => s"$entity: Completed dumping records.")
         }
 
-        /** Dump entity data using a page by page, sequential walk through.
-         *  
+        /**
+         * Dump entity data using a page by page, sequential walk through.
+         *
          *  TODO: Change this to use a feed of ids into the same approach
          *  used in `dumpEntityUsingKeyfile` so that it runs fast by default.
          */
@@ -620,7 +632,7 @@ object program {
 
           def mkQuery(ids: Traversable[String], ps: Option[PagingInfo]) =
             FetchExpression(fetchInIdList(entityDesc.logicalName,
-              entityDesc.primaryId, ids), ps.getOrElse(PagingInfo()))
+              entityDesc.primaryId, ids, cols), ps.getOrElse(PagingInfo()))
 
           def toEnvStream(signal: Signal[Task, CrmAuthenticationHeader]) =
             envelopesFromInput[Envelope, Traversable[String], FetchExpression](http, signal,
@@ -643,7 +655,7 @@ object program {
           dumpEntity(http, orgAuth, entityDesc, colSet, outputFile, header, joined)
         }
 
-        def mkKeysFile(ename: String) = ename + ".keys"
+        def mkKeysFileName(ename: String) = ename + ".keys"
 
         def output(http: HttpExecutor): Stream[Task, Stream[Task, String]] =
           fs2.Stream.eval(Task.fromFuture(orgAuthF)).flatMap { orgAuth =>
@@ -667,13 +679,14 @@ object program {
 
                   Stream.emits(spec.keySet.toSeq).map { entity =>
                     val cols = spec(entity)
-                    
+
                     val entityDesc = findEntity(entity, schema).
                       getOrElse(throw new RuntimeException(s"Unable to find metadata for entity $entity"))
-                    
-                      val outputFile = s"$entity.csv"
 
-                    val keyFile = mkKeysFile(entity)
+                    val outputFile = s"$entity.csv"
+                    println(s"Output file: $outputFile")
+
+                    val keyFile = mkKeysFileName(entity)
                     val keyFileExists = Files.exists(Paths.get(keyFile))
 
                     val str =
@@ -705,7 +718,7 @@ object program {
           case _ =>
         }
         tpool.shutdown
-        tpool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
+        tpool.awaitTermination(120, java.util.concurrent.TimeUnit.SECONDS)
 
       case "countEntities" =>
 

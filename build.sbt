@@ -36,11 +36,11 @@ libraryDependencies ++= Seq(
     ,"org.apache.commons" % "commons-lang3" % "latest.release"
 )
 
-libraryDependencies ++= Seq(
-  "io.circe" %% "circe-core",
-  "io.circe" %% "circe-generic",
-  "io.circe" %% "circe-parser"
-).map(_ % "latest.version")
+//libraryDependencies ++= Seq(
+//  "io.circe" %% "circe-core",
+//  "io.circe" %% "circe-generic",
+//  "io.circe" %% "circe-parser"
+//).map(_ % "0.5.4")
 
 EclipseKeys.createSrc := EclipseCreateSrc.Default + EclipseCreateSrc.Resource
 

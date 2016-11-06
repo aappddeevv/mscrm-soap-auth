@@ -49,25 +49,35 @@ trait StreamHelpers {
         }
     }
 
+  import org.apache.commons.lang3.StringEscapeUtils._
+
+  /**
+   * Strip quotes, backslashes, replace newlines with stringified versions,
+   *  strip non UTF-8 chars and escape anything remaining.
+   */
+  def cleanString(s: String) =
+    escapeCsv(s.replace("\\", "")
+        .replace("\"", "")
+        .replace("\r", "")
+        .replace("\n", "\\n")
+        .replaceAll("[^\\u0000-\\uFFFF]", ""))
+
   /**
    * Pipe that makes CSV output rows. All of the attributes in the
    *  entity are output. If you need fewer attributes, change the entity
-   *  prior to this pipe. Slow as anything.
+   *  prior to this pipe. Slow as anything. For safety, removes
+   *  all backslashes and all double quote characters.
    *
    *  TODO: Don't be slow.
    */
-  def makeOutputRow(rs: String = ",", eor: String = "\n"): Pipe[Task, sdk.Entity, String] = pipe.lift { ent =>
-    import org.apache.commons.lang3.StringEscapeUtils._
-    val keys = ent.attributes.keys.toList.sorted
-    keys.map(ent.attributes(_).text)
-      .map(s => s.replaceAll("\\\"\"", "\""))
-      .map(escapeCsv(_)
-          .replaceAll("\r", "")
-          .replaceAll("\n", "\\n")
-          .replaceAll("[^\\u0000-\\uFFFF]", "")).mkString(rs) + eor
-  }
+  def makeOutputRow(rs: String = ",", eor: String = "\n")(cols: Traversable[String]): Pipe[Task, sdk.Entity, String] =
+    pipe.lift { ent =>
+      val keys = ent.attributes.keys.toList.sorted
+      keys.map(ent.attributes(_).text).map(cleanString(_)).mkString(rs) + eor
+    }
 
-  val defaultMakeOutputRow = makeOutputRow()
+  //  def defaultMakeOutputRow(cols: Traversable[String]) = makeOutputRow() _
+  val defaultMakeOutputRow = makeOutputRow()(Seq())
 
   /**
    * Convert a list of strings to list of regexs useful for match
@@ -97,9 +107,10 @@ trait StreamHelpers {
 
   //(config.leaseTimeRenewalFraction * config.leaseTime)
 
-  /** Stream of valid auths every `d` minutes. Provide a simple "auth"
+  /**
+   * Stream of valid auths every `d` minutes. Provide a simple "auth"
    *  generator as `f`.
-    */
+   */
   def auths(f: => Future[CrmAuthenticationHeader], renewalInMin: Int)(implicit strategy: Strategy, scheduler: Scheduler, ec: ExecutionContext) =
     time.awakeEvery[Task](renewalInMin.minutes).evalMap { _ =>
       Task.fromFuture(f)
@@ -111,8 +122,8 @@ trait StreamHelpers {
    * Create a stream of SOAP envelopes that are the result of a request to the server.
    *  The auths signal should always provide a valid auth when you need it that
    *  has a lifetime that is longer than the time to make the request.
-   *  
-   *  You can create another stream that sets the signal's value with a 
+   *
+   *  You can create another stream that sets the signal's value with a
    *  valid auth and then combine the "auth" stream with this stream
    *  to create envelopes.
    *
@@ -190,7 +201,7 @@ trait StreamHelpers {
    * @return A Stream of Envelopes.
    */
   def envelopesFromInput[T <: Envelope, I, R](http: HttpExecutor,
-    authTokenSignal: Signal[Task, CrmAuthenticationHeader],    
+    authTokenSignal: Signal[Task, CrmAuthenticationHeader],
     query: (I, Option[PagingInfo]) => R,
     httpRetrys: Int = 5,
     pauseBetween: Int = 30)(input: I)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R]) = {

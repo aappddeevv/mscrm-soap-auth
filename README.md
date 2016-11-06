@@ -35,7 +35,9 @@ auth
 
 query
 * Count all entities in an org.
-* Dump attributes for an entity to a file, basically an extract to CSV.
+* Dump attributes for an entity to a file, basically an extract to CSV. The download can
+run very fast if you first cerate a "key" partition, it shoud be the fastest downloader
+anywhere that is only constrained by memory size.
 
 other
 * Run --help to print show other capabilites.
