@@ -3,7 +3,7 @@ package sdk
 
 import org.scalatest._
 
-class readerspecs extends FlatSpec with Matchers {
+class readerspec extends FlatSpec with Matchers {
 
   import scala.xml._
   import com.lucidchart.open.xtract._
@@ -137,6 +137,54 @@ class readerspecs extends FlatSpec with Matchers {
         ((__ \ "Data").read[NodeSeq] andThen dataReader))))(IBody.apply _)
 
     withClue("data:") { r.read(bodyXml).toOption shouldBe Option(IBody(false, IData("k", 1))) }
+  }
+
+  val prefixattr =
+    <kvs xmlns:i="mynamespace">
+      <el i:type="string">
+        theel
+      </el>
+    </kvs>
+
+  "attribute reader" should "read a prefixed attribute" in {
+    val areader = XmlReader.attribute[String]("{mynamespace}type")
+    val r = (__ \ "el")(prefixattr)
+    val prefixResult = areader.read(r)
+    assert(prefixResult.isSuccessful)
+    prefixResult.toOption shouldBe Some("string")
+
+    // combine this together for a real read
+
+    val elAndAttrReader = (
+      (__ \ "el").read[String].map(_.trim) and
+      (__ \ "el").read(areader))((_, _))
+    elAndAttrReader.read(prefixattr).toOption shouldBe Some(("theel", "string"))
+  }
+
+  val f =
+    <FormattedValues>
+      <b:KeyValuePairOfstringstring>
+        <c:key>creditonhold</c:key>
+        <c:value>No</c:value>
+      </b:KeyValuePairOfstringstring>
+      <b:KeyValuePairOfstringstring>
+        <c:key>donotcontact</c:key>
+        <c:value>Allow</c:value>
+      </b:KeyValuePairOfstringstring>
+      <b:KeyValuePairOfstringstring>
+        <c:key>bstate</c:key>
+        <c:value>1</c:value>
+      </b:KeyValuePairOfstringstring>
+    </FormattedValues>
+
+  val kvpreader = (
+    (__ \ "key").read[String] and
+    (__ \ "value").read[String])((_, _))
+
+  "reading kv pairs" should "read a sequency correctly" in {
+    val r = (__ \\ "KeyValuePairOfstringstring").read(seq(kvpreader))
+    val tmp = r.read(f)
+    r.map(v => v should contain inOrderOnly (("creditonhold", "No"), ("donotcontact", "Allow"), ("bstate", "1")))
   }
 
 }

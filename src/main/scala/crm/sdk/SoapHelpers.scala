@@ -430,6 +430,9 @@ object UnsetServerValue extends TypedServerValue("", <missing_></missing_>, "")
 /** A value from the server. It holds raw server data that can be re-interpreted if desired. */
 case class TypedServerValue(text: String, repr: xml.NodeSeq, t: String) extends ServerValue
 
+/** A value from the server that represets an EntityReference. */
+case class EntityReferenceServerValue(text: String, repr: xml.NodeSeq, logicalName: String) extends ServerValue
+
 /** Entity is a map of keys to values, pretty much. */
 case class Entity(attributes: Map[String, ServerValue] = collection.immutable.HashMap[String, ServerValue](),
   formattedAttributes: Map[String, String] = collection.immutable.HashMap[String, String]())
