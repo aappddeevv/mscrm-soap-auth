@@ -42,9 +42,9 @@ case class Config(
    * Region for the org you want to connect to. You may have many
    * orgs within a region that you can connect to.
    */
-  region: String = "NA",
-  username: String = "",
-  password: String = "",
+  region: String = Option(System.getenv.get("REGION")).getOrElse("NA"),
+  username: String = Option(System.getenv.get("USERNAME")).getOrElse(""),
+  password: String = Option(System.getenv.get("PASSWORD")).getOrElse(""),
   /**
    * Timeout to wait for an individual remote request.
    */
@@ -135,7 +135,7 @@ object program {
       action((x, c) => c.copy(servicesUrl = x))
 
     head("crmauth", "0.1.0")
-    opt[String]('u', "userid").optional().valueName("<username>").text("Userid")
+    opt[String]('u', "userid").optional().valueName("<userid>").text("Userid")
       .action((x, c) => c.copy(username = x))
     opt[String]('p', "password").optional().valueName("<password>").text("Password")
       .action((x, c) => c.copy(password = x))
@@ -164,6 +164,7 @@ object program {
       action((x, c) => c.copy(pauseBetweenRetriesInSeconds = x))
 
     help("help").text("Show help")
+    note("Environment variables USERNAME, PASSWORD and REGION are used if they are not specified on the command line.")
     note("")
 
     cmd("create-test").action((_, c) => c.copy(mode = "create")).
