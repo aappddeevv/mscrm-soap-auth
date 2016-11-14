@@ -161,6 +161,45 @@ class readerspec extends FlatSpec with Matchers {
     elAndAttrReader.read(prefixattr).toOption shouldBe Some(("theel", "string"))
   }
 
+  val prefixattrcomplex =
+    <kvs xmlns:i="mynamespace">
+      <el i:type="string">stringvalue</el>
+      <el i:type="int">30</el>
+      <el i:type="long">30</el>
+    </kvs>
+
+  it should "allow failing fast in order to get the right reader" in {
+    implicit val elTypeReader = XmlReader.attribute[String]("{mynamespace}type")
+    sealed trait ElType
+    case class StringEl(v: String) extends ElType
+    case class IntEl(v: Int) extends ElType
+    case class LongEl(v: Long) extends ElType
+
+    val kvReader = (__ \\ "el").read(seq(elTypeReader))
+    val result = kvReader.read(prefixattrcomplex)
+    withClue("reading just the attributes:") {
+      result.foreach(r => r should contain inOrderOnly ("string", "int", "long"))
+    }
+
+    case class WrongTypeError(expected: String) extends ValidationError
+
+    // Fail if the namespaced attribute is not a match and return a nodeseq so we can compose it
+    def filteritype(t: String) = nodeReader.filter(WrongTypeError(t))(n => elTypeReader.read(n).getOrElse("") == t)
+    
+    val stringElReader: XmlReader[StringEl] = filteritype("string").map(n => StringEl(n.text))
+    val intElReader = filteritype("int").map(n => IntEl(n.text.toInt))
+    val longElReader = filteritype("long") andThen nodeReader.map(n => LongEl(n.text.toInt)) // slight variation
+
+    val eltypereader =
+      (__.read(stringElReader) orElse
+        __.read(intElReader) orElse
+        __.read(longElReader))
+    val readEls = (__ \\ "el").read(seq(eltypereader))
+    withClue("reading full objects:") {
+      readEls.read(prefixattrcomplex).foreach(r => r should contain inOrderOnly (StringEl("stringvalue"), IntEl(30), LongEl(30)))
+    }
+  }
+
   val f =
     <FormattedValues>
       <b:KeyValuePairOfstringstring>

@@ -90,11 +90,35 @@ object metadata {
     entityLogicalName: String,
     targets: Seq[String]) extends Attribute
 
+  case class PicklistAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean, // can be read in a retrieve
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
+    options: OptionSet) extends Attribute
+
   sealed trait DateTimeBehavior
   case object DateOnly extends DateTimeBehavior
   case object TimeZoneIndependent extends DateTimeBehavior
-  case object USerlocal extends DateTimeBehavior  
-    
+  case object USerlocal extends DateTimeBehavior
+
+  /** An Option in an OptionSet */
+  case class OptionMetadata(label: String, value: String)
+
+  /** An option list for a PickListAttribute. */
+  case class OptionSet(name: String,
+    displayName: String,
+    description: String,
+    isGlobal: Boolean,
+    optionSetType: String,
+    options: Seq[OptionMetadata],
+    id: String)
+
   /**
    * The referenced/referencing names are logical names.
    */
@@ -137,7 +161,7 @@ object metadata {
       e <- schema.entities.find(_.logicalName.trim.toUpperCase == ename.trim.toUpperCase)
       //a <- e.attributes.find(_.isPrimaryId)
     } yield e.primaryId //yield a.logicalName
-    
+
   /**
    * Find an entity ignoring case in the entity's logical name.
    */
@@ -145,11 +169,18 @@ object metadata {
 
   object readers {
 
+    /** ParseError returned if the "type" is wrong. */
     case class WrongTypeError(expected: String) extends ValidationError
+
+    /** Read an attribute. */
+    def iTypeReader(ns: String) = XmlReader.attribute[String](s"{$ns}type")
+
+    /** Fail fast if the i:type attribute does not match `t`. Return a NodeSeq reader to allow XmlReader composition. */
+    def filteritype(t: String) = nodeReader.filter(WrongTypeError(t))(n => iTypeReader(CrmAuth.NSSchemaInstance).read(n).getOrElse("") == t)
 
     val schemaNameReader = (__ \ "SchemaName").read[String]
     val logicalNameReader = (__ \ "LogicalName").read[String]
-    val attributeTypeReader = (__ \ "AttributeType").read[String]
+    val attributeTypeReader = (__ \ "AttributeType" \ "Value").read[String]
     val isValidForReadReader = (__ \ "IsValidForRead").read[Boolean]
     val isPrimaryIdReader = (__ \ "IsPrimaryId").read[Boolean]
     val isLogicalReader = (__ \ "IsLogical").read[Boolean]
@@ -218,8 +249,37 @@ object metadata {
         maxLengthReader and
         formatReader)(StringAttribute.apply _)
 
+    val optionMetadataReader = (
+      (__ \ "Label" \ "UserLocalizedLabel" \ "Label").read[String] and
+      (__ \ "Value").read[String])(OptionMetadata.apply _)
+
+    val optionSetReader = (
+      (__ \ "Name").read[String] and
+      (__ \ "DisplayName" \ "UserLocalizedLabel" \ "Label").read[String] and
+      (__ \ "Description" \ "UserLocalizedLabel" \ "Label").read[String] and
+      (__ \ "IsGlobal").read[Boolean] and
+      (__ \ "OptionSetType").read[String] and
+      (__ \ "OptionSet" \\ "OptionSetMetadata").read(seq(optionMetadataReader)) and
+      (__ \ "MetadataId").read[String])(OptionSet.apply _)
+
+    val pickListAttributeReader: XmlReader[PicklistAttribute] = (
+      attributeTypeReader.filter(WrongTypeError("Picklist"))(_ == "Picklist") and
+      schemaNameReader and
+      logicalNameReader and
+      isValidForReadReader and
+      isPrimaryIdReader and
+      isLogicalReader and
+      attributeOfReader and
+      columnNumberReader and
+      metadataIdReader and
+      entityLogicalNameReader and
+      optionSetReader)(PicklistAttribute.apply _)
+
     implicit val attributeReader: XmlReader[Attribute] =
-      stringAttributeReader orElse lookupAttributeReader orElse basicAttributeReader
+      stringAttributeReader orElse
+        lookupAttributeReader orElse
+        pickListAttributeReader orElse
+        basicAttributeReader
 
     implicit val relationshipReader: XmlReader[Relationship] = (
       (__ \ "SchemaName").read[String] and
