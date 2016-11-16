@@ -1,0 +1,791 @@
+<d:EntityMetadata>
+  <d:MetadataId>9dceed2b-9513-4a14-b09e-c176a6f1d9c3</d:MetadataId>
+  <d:HasChanged i:nil="true" />
+  <d:ActivityTypeMask>0</d:ActivityTypeMask>
+  <d:Attributes>
+    <d:AttributeMetadata>
+      <d:MetadataId>b02008f2-9020-439d-8667-6396a088c047</d:MetadataId>
+      <d:HasChanged i:nil="true" />
+      <d:AttributeOf i:nil="true" />
+      <d:AttributeType>Uniqueidentifier</d:AttributeType>
+      <d:CanBeSecuredForCreate>false</d:CanBeSecuredForCreate>
+      <d:CanBeSecuredForRead>false</d:CanBeSecuredForRead>
+      <d:CanBeSecuredForUpdate>false</d:CanBeSecuredForUpdate>
+      <d:CanModifyAdditionalSettings>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyadditionalsettings</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:CanModifyAdditionalSettings>
+      <d:ColumnNumber>1</d:ColumnNumber>
+      <d:DeprecatedVersion i:nil="true" />
+      <d:Description>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>88a02f90-1c30-49f7-b49f-40ff0d3b5317</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>Subscription Id</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>88a02f90-1c30-49f7-b49f-40ff0d3b5317</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>Subscription Id</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:Description>
+      <d:DisplayName>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>0b1b34b3-8322-4313-ac76-a96bd7722793</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>SubscriptionId</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>0b1b34b3-8322-4313-ac76-a96bd7722793</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>SubscriptionId</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:DisplayName>
+      <d:EntityLogicalName>subscriptionsyncentryoffline</d:EntityLogicalName>
+      <d:InheritsFrom i:nil="true" />
+      <d:IsAuditEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyauditsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsAuditEnabled>
+      <d:IsCustomAttribute>false</d:IsCustomAttribute>
+      <d:IsCustomizable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>iscustomizable</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:IsCustomizable>
+      <d:IsFilterable>false</d:IsFilterable>
+      <d:IsGlobalFilterEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyglobalfiltersettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsGlobalFilterEnabled>
+      <d:IsManaged>true</d:IsManaged>
+      <d:IsPrimaryId>false</d:IsPrimaryId>
+      <d:IsPrimaryName>false</d:IsPrimaryName>
+      <d:IsRenameable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>isrenameable</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:IsRenameable>
+      <d:IsRetrievable>false</d:IsRetrievable>
+      <d:IsSearchable>false</d:IsSearchable>
+      <d:IsSecured>false</d:IsSecured>
+      <d:IsSortableEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyissortablesettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsSortableEnabled>
+      <d:IsValidForAdvancedFind>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifysearchsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsValidForAdvancedFind>
+      <d:IsValidForCreate>true</d:IsValidForCreate>
+      <d:IsValidForRead>true</d:IsValidForRead>
+      <d:IsValidForUpdate>true</d:IsValidForUpdate>
+      <d:LinkedAttributeId i:nil="true" />
+      <d:LogicalName>subscriptionid</d:LogicalName>
+      <d:RequiredLevel>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyrequirementlevelsettings</b:ManagedPropertyLogicalName>
+	<b:Value>SystemRequired</b:Value>
+      </d:RequiredLevel>
+      <d:SchemaName>SubscriptionId</d:SchemaName>
+      <d:AttributeTypeName xmlns:e="http://schemas.microsoft.com/xrm/2013/Metadata">
+	<e:Value>UniqueidentifierType</e:Value>
+      </d:AttributeTypeName>
+      <d:IntroducedVersion>8.0.0.0</d:IntroducedVersion>
+      <d:IsLogical>false</d:IsLogical>
+      <d:SourceType i:nil="true" />
+    </d:AttributeMetadata>
+    <d:AttributeMetadata>
+      <d:MetadataId>181bd60a-357f-4e2d-87dc-3888fac0c84f</d:MetadataId>
+      <d:HasChanged i:nil="true" />
+      <d:AttributeOf i:nil="true" />
+      <d:AttributeType>Uniqueidentifier</d:AttributeType>
+      <d:CanBeSecuredForCreate>false</d:CanBeSecuredForCreate>
+      <d:CanBeSecuredForRead>false</d:CanBeSecuredForRead>
+      <d:CanBeSecuredForUpdate>false</d:CanBeSecuredForUpdate>
+      <d:CanModifyAdditionalSettings>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyadditionalsettings</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:CanModifyAdditionalSettings>
+      <d:ColumnNumber>2</d:ColumnNumber>
+      <d:DeprecatedVersion i:nil="true" />
+      <d:Description>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>56c4af2b-78c5-4c79-b83d-8b1fa1daf067</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>Object Id</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>56c4af2b-78c5-4c79-b83d-8b1fa1daf067</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>Object Id</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:Description>
+      <d:DisplayName>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>365348ee-76e5-4ac7-9de8-0bded064a5ff</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>ObjectId</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>365348ee-76e5-4ac7-9de8-0bded064a5ff</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>ObjectId</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:DisplayName>
+      <d:EntityLogicalName>subscriptionsyncentryoffline</d:EntityLogicalName>
+      <d:InheritsFrom i:nil="true" />
+      <d:IsAuditEnabled>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyauditsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsAuditEnabled>
+      <d:IsCustomAttribute>false</d:IsCustomAttribute>
+      <d:IsCustomizable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>iscustomizable</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsCustomizable>
+      <d:IsFilterable>false</d:IsFilterable>
+      <d:IsGlobalFilterEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyglobalfiltersettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsGlobalFilterEnabled>
+      <d:IsManaged>true</d:IsManaged>
+      <d:IsPrimaryId>false</d:IsPrimaryId>
+      <d:IsPrimaryName>false</d:IsPrimaryName>
+      <d:IsRenameable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>isrenameable</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsRenameable>
+      <d:IsRetrievable>false</d:IsRetrievable>
+      <d:IsSearchable>false</d:IsSearchable>
+      <d:IsSecured>false</d:IsSecured>
+      <d:IsSortableEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyissortablesettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsSortableEnabled>
+      <d:IsValidForAdvancedFind>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifysearchsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsValidForAdvancedFind>
+      <d:IsValidForCreate>true</d:IsValidForCreate>
+      <d:IsValidForRead>true</d:IsValidForRead>
+      <d:IsValidForUpdate>true</d:IsValidForUpdate>
+      <d:LinkedAttributeId i:nil="true" />
+      <d:LogicalName>objectid</d:LogicalName>
+      <d:RequiredLevel>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyrequirementlevelsettings</b:ManagedPropertyLogicalName>
+	<b:Value>SystemRequired</b:Value>
+      </d:RequiredLevel>
+      <d:SchemaName>ObjectId</d:SchemaName>
+      <d:AttributeTypeName xmlns:e="http://schemas.microsoft.com/xrm/2013/Metadata">
+	<e:Value>UniqueidentifierType</e:Value>
+      </d:AttributeTypeName>
+      <d:IntroducedVersion>8.0.0.0</d:IntroducedVersion>
+      <d:IsLogical>false</d:IsLogical>
+      <d:SourceType i:nil="true" />
+    </d:AttributeMetadata>
+    <d:AttributeMetadata i:type="d:BigIntAttributeMetadata">
+      <d:MetadataId>b9230595-c46c-4a81-81af-7eaaa049d4cb</d:MetadataId>
+      <d:HasChanged i:nil="true" />
+      <d:AttributeOf i:nil="true" />
+      <d:AttributeType>BigInt</d:AttributeType>
+      <d:CanBeSecuredForCreate>false</d:CanBeSecuredForCreate>
+      <d:CanBeSecuredForRead>false</d:CanBeSecuredForRead>
+      <d:CanBeSecuredForUpdate>false</d:CanBeSecuredForUpdate>
+      <d:CanModifyAdditionalSettings>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyadditionalsettings</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:CanModifyAdditionalSettings>
+      <d:ColumnNumber>5</d:ColumnNumber>
+      <d:DeprecatedVersion i:nil="true" />
+      <d:Description>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>a8751957-85f6-43a3-94fb-4f5680d83832</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>Version number</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>a8751957-85f6-43a3-94fb-4f5680d83832</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>Version number</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:Description>
+      <d:DisplayName>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>0eacc9b1-9bd9-46fc-b922-370e1eb5d4e7</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>VersionNumber</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>0eacc9b1-9bd9-46fc-b922-370e1eb5d4e7</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>VersionNumber</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:DisplayName>
+      <d:EntityLogicalName>subscriptionsyncentryoffline</d:EntityLogicalName>
+      <d:InheritsFrom i:nil="true" />
+      <d:IsAuditEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyauditsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsAuditEnabled>
+      <d:IsCustomAttribute>false</d:IsCustomAttribute>
+      <d:IsCustomizable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>iscustomizable</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:IsCustomizable>
+      <d:IsFilterable>false</d:IsFilterable>
+      <d:IsGlobalFilterEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyglobalfiltersettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsGlobalFilterEnabled>
+      <d:IsManaged>true</d:IsManaged>
+      <d:IsPrimaryId>false</d:IsPrimaryId>
+      <d:IsPrimaryName>false</d:IsPrimaryName>
+      <d:IsRenameable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>isrenameable</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:IsRenameable>
+      <d:IsRetrievable>false</d:IsRetrievable>
+      <d:IsSearchable>false</d:IsSearchable>
+      <d:IsSecured>false</d:IsSecured>
+      <d:IsSortableEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyissortablesettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsSortableEnabled>
+      <d:IsValidForAdvancedFind>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifysearchsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsValidForAdvancedFind>
+      <d:IsValidForCreate>true</d:IsValidForCreate>
+      <d:IsValidForRead>true</d:IsValidForRead>
+      <d:IsValidForUpdate>true</d:IsValidForUpdate>
+      <d:LinkedAttributeId i:nil="true" />
+      <d:LogicalName>versionnumber</d:LogicalName>
+      <d:RequiredLevel>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyrequirementlevelsettings</b:ManagedPropertyLogicalName>
+	<b:Value>SystemRequired</b:Value>
+      </d:RequiredLevel>
+      <d:SchemaName>VersionNumber</d:SchemaName>
+      <d:AttributeTypeName xmlns:e="http://schemas.microsoft.com/xrm/2013/Metadata">
+	<e:Value>BigIntType</e:Value>
+      </d:AttributeTypeName>
+      <d:IntroducedVersion>8.0.0.0</d:IntroducedVersion>
+      <d:IsLogical>false</d:IsLogical>
+      <d:SourceType i:nil="true" />
+      <d:MaxValue>9223372036854775807</d:MaxValue>
+      <d:MinValue>-9223372036854775808</d:MinValue>
+    </d:AttributeMetadata>
+    <d:AttributeMetadata i:type="d:IntegerAttributeMetadata">
+      <d:MetadataId>0c032f7b-ce18-43e5-b9a6-4902dc495709</d:MetadataId>
+      <d:HasChanged i:nil="true" />
+      <d:AttributeOf i:nil="true" />
+      <d:AttributeType>Integer</d:AttributeType>
+      <d:CanBeSecuredForCreate>false</d:CanBeSecuredForCreate>
+      <d:CanBeSecuredForRead>false</d:CanBeSecuredForRead>
+      <d:CanBeSecuredForUpdate>false</d:CanBeSecuredForUpdate>
+      <d:CanModifyAdditionalSettings>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyadditionalsettings</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:CanModifyAdditionalSettings>
+      <d:ColumnNumber>3</d:ColumnNumber>
+      <d:DeprecatedVersion i:nil="true" />
+      <d:Description>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>01e27658-a393-4a69-9dab-496ed1250648</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>Entity object type code</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>01e27658-a393-4a69-9dab-496ed1250648</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>Entity object type code</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:Description>
+      <d:DisplayName>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>8d653b24-e058-4b46-a031-84928934d521</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>ObjectTypeCode</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>8d653b24-e058-4b46-a031-84928934d521</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>ObjectTypeCode</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:DisplayName>
+      <d:EntityLogicalName>subscriptionsyncentryoffline</d:EntityLogicalName>
+      <d:InheritsFrom i:nil="true" />
+      <d:IsAuditEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyauditsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsAuditEnabled>
+      <d:IsCustomAttribute>false</d:IsCustomAttribute>
+      <d:IsCustomizable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>iscustomizable</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:IsCustomizable>
+      <d:IsFilterable>false</d:IsFilterable>
+      <d:IsGlobalFilterEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyglobalfiltersettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsGlobalFilterEnabled>
+      <d:IsManaged>true</d:IsManaged>
+      <d:IsPrimaryId>false</d:IsPrimaryId>
+      <d:IsPrimaryName>false</d:IsPrimaryName>
+      <d:IsRenameable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>isrenameable</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:IsRenameable>
+      <d:IsRetrievable>false</d:IsRetrievable>
+      <d:IsSearchable>false</d:IsSearchable>
+      <d:IsSecured>false</d:IsSecured>
+      <d:IsSortableEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyissortablesettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsSortableEnabled>
+      <d:IsValidForAdvancedFind>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifysearchsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsValidForAdvancedFind>
+      <d:IsValidForCreate>true</d:IsValidForCreate>
+      <d:IsValidForRead>true</d:IsValidForRead>
+      <d:IsValidForUpdate>true</d:IsValidForUpdate>
+      <d:LinkedAttributeId i:nil="true" />
+      <d:LogicalName>objecttypecode</d:LogicalName>
+      <d:RequiredLevel>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyrequirementlevelsettings</b:ManagedPropertyLogicalName>
+	<b:Value>SystemRequired</b:Value>
+      </d:RequiredLevel>
+      <d:SchemaName>ObjectTypeCode</d:SchemaName>
+      <d:AttributeTypeName xmlns:e="http://schemas.microsoft.com/xrm/2013/Metadata">
+	<e:Value>IntegerType</e:Value>
+      </d:AttributeTypeName>
+      <d:IntroducedVersion>8.0.0.0</d:IntroducedVersion>
+      <d:IsLogical>false</d:IsLogical>
+      <d:SourceType>0</d:SourceType>
+      <d:Format>None</d:Format>
+      <d:MaxValue>2147483647</d:MaxValue>
+      <d:MinValue>0</d:MinValue>
+      <d:FormulaDefinition i:nil="true" />
+      <d:SourceTypeMask>0</d:SourceTypeMask>
+    </d:AttributeMetadata>
+    <d:AttributeMetadata i:type="d:IntegerAttributeMetadata">
+      <d:MetadataId>f587be56-ed09-4bdf-a052-d7317e3b794f</d:MetadataId>
+      <d:HasChanged i:nil="true" />
+      <d:AttributeOf i:nil="true" />
+      <d:AttributeType>Integer</d:AttributeType>
+      <d:CanBeSecuredForCreate>false</d:CanBeSecuredForCreate>
+      <d:CanBeSecuredForRead>false</d:CanBeSecuredForRead>
+      <d:CanBeSecuredForUpdate>false</d:CanBeSecuredForUpdate>
+      <d:CanModifyAdditionalSettings>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyadditionalsettings</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:CanModifyAdditionalSettings>
+      <d:ColumnNumber>4</d:ColumnNumber>
+      <d:DeprecatedVersion i:nil="true" />
+      <d:Description>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>99803dcd-9fc8-4624-99e0-c76a9cb5fb6a</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>Sync state</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>99803dcd-9fc8-4624-99e0-c76a9cb5fb6a</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>Sync state</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:Description>
+      <d:DisplayName>
+	<b:LocalizedLabels>
+	  <b:LocalizedLabel>
+	    <d:MetadataId>0ec2584f-2ec5-4e68-8b8e-5e71d0280896</d:MetadataId>
+	    <d:HasChanged i:nil="true" />
+	    <b:IsManaged>true</b:IsManaged>
+	    <b:Label>SyncState</b:Label>
+	    <b:LanguageCode>1033</b:LanguageCode>
+	  </b:LocalizedLabel>
+	</b:LocalizedLabels>
+	<b:UserLocalizedLabel>
+	  <d:MetadataId>0ec2584f-2ec5-4e68-8b8e-5e71d0280896</d:MetadataId>
+	  <d:HasChanged i:nil="true" />
+	  <b:IsManaged>true</b:IsManaged>
+	  <b:Label>SyncState</b:Label>
+	  <b:LanguageCode>1033</b:LanguageCode>
+	</b:UserLocalizedLabel>
+      </d:DisplayName>
+      <d:EntityLogicalName>subscriptionsyncentryoffline</d:EntityLogicalName>
+      <d:InheritsFrom i:nil="true" />
+      <d:IsAuditEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyauditsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsAuditEnabled>
+      <d:IsCustomAttribute>false</d:IsCustomAttribute>
+      <d:IsCustomizable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>iscustomizable</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:IsCustomizable>
+      <d:IsFilterable>false</d:IsFilterable>
+      <d:IsGlobalFilterEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyglobalfiltersettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsGlobalFilterEnabled>
+      <d:IsManaged>true</d:IsManaged>
+      <d:IsPrimaryId>false</d:IsPrimaryId>
+      <d:IsPrimaryName>false</d:IsPrimaryName>
+      <d:IsRenameable>
+	<b:CanBeChanged>false</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>isrenameable</b:ManagedPropertyLogicalName>
+	<b:Value>true</b:Value>
+      </d:IsRenameable>
+      <d:IsRetrievable>false</d:IsRetrievable>
+      <d:IsSearchable>false</d:IsSearchable>
+      <d:IsSecured>false</d:IsSecured>
+      <d:IsSortableEnabled>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyissortablesettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsSortableEnabled>
+      <d:IsValidForAdvancedFind>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifysearchsettings</b:ManagedPropertyLogicalName>
+	<b:Value>false</b:Value>
+      </d:IsValidForAdvancedFind>
+      <d:IsValidForCreate>true</d:IsValidForCreate>
+      <d:IsValidForRead>true</d:IsValidForRead>
+      <d:IsValidForUpdate>true</d:IsValidForUpdate>
+      <d:LinkedAttributeId i:nil="true" />
+      <d:LogicalName>syncstate</d:LogicalName>
+      <d:RequiredLevel>
+	<b:CanBeChanged>true</b:CanBeChanged>
+	<b:ManagedPropertyLogicalName>canmodifyrequirementlevelsettings</b:ManagedPropertyLogicalName>
+	<b:Value>SystemRequired</b:Value>
+      </d:RequiredLevel>
+      <d:SchemaName>SyncState</d:SchemaName>
+      <d:AttributeTypeName xmlns:e="http://schemas.microsoft.com/xrm/2013/Metadata">
+	<e:Value>IntegerType</e:Value>
+      </d:AttributeTypeName>
+      <d:IntroducedVersion>8.0.0.0</d:IntroducedVersion>
+      <d:IsLogical>false</d:IsLogical>
+      <d:SourceType>0</d:SourceType>
+      <d:Format>None</d:Format>
+      <d:MaxValue i:nil="true" />
+      <d:MinValue i:nil="true" />
+      <d:FormulaDefinition i:nil="true" />
+      <d:SourceTypeMask>0</d:SourceTypeMask>
+    </d:AttributeMetadata>
+  </d:Attributes>
+  <d:AutoCreateAccessTeams>false</d:AutoCreateAccessTeams>
+  <d:AutoRouteToOwnerQueue>false</d:AutoRouteToOwnerQueue>
+  <d:CanBeInManyToMany>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canbeinmanytomany</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanBeInManyToMany>
+  <d:CanBePrimaryEntityInRelationship>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canbeprimaryentityinrelationship</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanBePrimaryEntityInRelationship>
+  <d:CanBeRelatedEntityInRelationship>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canberelatedentityinrelationship</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanBeRelatedEntityInRelationship>
+  <d:CanChangeTrackingBeEnabled>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canchangetrackingbeenabled</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanChangeTrackingBeEnabled>
+  <d:CanCreateAttributes>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>cancreateattributes</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanCreateAttributes>
+  <d:CanCreateCharts>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>cancreatecharts</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanCreateCharts>
+  <d:CanCreateForms>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>cancreateforms</b:ManagedPropertyLogicalName>
+    <b:Value>true</b:Value>
+  </d:CanCreateForms>
+  <d:CanCreateViews>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>cancreateviews</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanCreateViews>
+  <d:CanEnableSyncToExternalSearchIndex>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canenablesynctoexternalsearchindex</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanEnableSyncToExternalSearchIndex>
+  <d:CanModifyAdditionalSettings>
+    <b:CanBeChanged>true</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifyadditionalsettings</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanModifyAdditionalSettings>
+  <d:CanTriggerWorkflow>false</d:CanTriggerWorkflow>
+  <d:ChangeTrackingEnabled>false</d:ChangeTrackingEnabled>
+  <d:Description>
+    <b:LocalizedLabels>
+      <b:LocalizedLabel>
+	<d:MetadataId>202d7f3c-a8d9-4151-96d3-15c91a9c6766</d:MetadataId>
+	<d:HasChanged i:nil="true" />
+	<b:IsManaged>true</b:IsManaged>
+	<b:Label>Used for offline sync, internal use only.</b:Label>
+	<b:LanguageCode>1033</b:LanguageCode>
+      </b:LocalizedLabel>
+    </b:LocalizedLabels>
+    <b:UserLocalizedLabel>
+      <d:MetadataId>202d7f3c-a8d9-4151-96d3-15c91a9c6766</d:MetadataId>
+      <d:HasChanged i:nil="true" />
+      <b:IsManaged>true</b:IsManaged>
+      <b:Label>Used for offline sync, internal use only.</b:Label>
+      <b:LanguageCode>1033</b:LanguageCode>
+    </b:UserLocalizedLabel>
+  </d:Description>
+  <d:DisplayCollectionName>
+    <b:LocalizedLabels>
+      <b:LocalizedLabel>
+	<d:MetadataId>e57b0276-3d35-4b02-bb23-15ad58a38c97</d:MetadataId>
+	<d:HasChanged i:nil="true" />
+	<b:IsManaged>true</b:IsManaged>
+	<b:Label>Subscription Sync Entry Offline</b:Label>
+	<b:LanguageCode>1033</b:LanguageCode>
+      </b:LocalizedLabel>
+    </b:LocalizedLabels>
+    <b:UserLocalizedLabel>
+      <d:MetadataId>e57b0276-3d35-4b02-bb23-15ad58a38c97</d:MetadataId>
+      <d:HasChanged i:nil="true" />
+      <b:IsManaged>true</b:IsManaged>
+      <b:Label>Subscription Sync Entry Offline</b:Label>
+      <b:LanguageCode>1033</b:LanguageCode>
+    </b:UserLocalizedLabel>
+  </d:DisplayCollectionName>
+  <d:DisplayName>
+    <b:LocalizedLabels>
+      <b:LocalizedLabel>
+	<d:MetadataId>ff3dbd24-a381-4579-8971-dafa302533e1</d:MetadataId>
+	<d:HasChanged i:nil="true" />
+	<b:IsManaged>true</b:IsManaged>
+	<b:Label>Subscription Sync Entry Offline</b:Label>
+	<b:LanguageCode>1033</b:LanguageCode>
+      </b:LocalizedLabel>
+    </b:LocalizedLabels>
+    <b:UserLocalizedLabel>
+      <d:MetadataId>ff3dbd24-a381-4579-8971-dafa302533e1</d:MetadataId>
+      <d:HasChanged i:nil="true" />
+      <b:IsManaged>true</b:IsManaged>
+      <b:Label>Subscription Sync Entry Offline</b:Label>
+      <b:LanguageCode>1033</b:LanguageCode>
+    </b:UserLocalizedLabel>
+  </d:DisplayName>
+  <d:EnforceStateTransitions>false</d:EnforceStateTransitions>
+  <d:IconLargeName i:nil="true" />
+  <d:IconMediumName i:nil="true" />
+  <d:IconSmallName i:nil="true" />
+  <d:IsAIRUpdated>false</d:IsAIRUpdated>
+  <d:IsActivity>false</d:IsActivity>
+  <d:IsActivityParty>false</d:IsActivityParty>
+  <d:IsAuditEnabled>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifyauditsettings</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsAuditEnabled>
+  <d:IsAvailableOffline>false</d:IsAvailableOffline>
+  <d:IsBusinessProcessEnabled>false</d:IsBusinessProcessEnabled>
+  <d:IsChildEntity>false</d:IsChildEntity>
+  <d:IsConnectionsEnabled>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifyconnectionsettings</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsConnectionsEnabled>
+  <d:IsCustomEntity>false</d:IsCustomEntity>
+  <d:IsCustomizable>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>iscustomizable</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsCustomizable>
+  <d:IsDocumentManagementEnabled>false</d:IsDocumentManagementEnabled>
+  <d:IsDocumentRecommendationsEnabled>false</d:IsDocumentRecommendationsEnabled>
+  <d:IsDuplicateDetectionEnabled>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifyduplicatedetectionsettings</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsDuplicateDetectionEnabled>
+  <d:IsEnabledForCharts>false</d:IsEnabledForCharts>
+  <d:IsEnabledForTrace>false</d:IsEnabledForTrace>
+  <d:IsImportable>false</d:IsImportable>
+  <d:IsInteractionCentricEnabled>false</d:IsInteractionCentricEnabled>
+  <d:IsIntersect>false</d:IsIntersect>
+  <d:IsKnowledgeManagementEnabled>false</d:IsKnowledgeManagementEnabled>
+  <d:IsMailMergeEnabled>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifymailmergesettings</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsMailMergeEnabled>
+  <d:IsManaged>true</d:IsManaged>
+  <d:IsMappable>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>ismappable</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsMappable>
+  <d:IsOneNoteIntegrationEnabled>false</d:IsOneNoteIntegrationEnabled>
+  <d:IsQuickCreateEnabled>false</d:IsQuickCreateEnabled>
+  <d:IsReadOnlyInMobileClient>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifymobileclientreadonly</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsReadOnlyInMobileClient>
+  <d:IsReadingPaneEnabled>false</d:IsReadingPaneEnabled>
+  <d:IsRenameable>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>isrenameable</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsRenameable>
+  <d:IsStateModelAware>false</d:IsStateModelAware>
+  <d:IsValidForAdvancedFind>false</d:IsValidForAdvancedFind>
+  <d:IsValidForQueue>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifyqueuesettings</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsValidForQueue>
+  <d:IsVisibleInMobile>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifymobilevisibility</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsVisibleInMobile>
+  <d:IsVisibleInMobileClient>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifymobileclientvisibility</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsVisibleInMobileClient>
+  <d:LogicalName>subscriptionsyncentryoffline</d:LogicalName>
+  <d:ManyToManyRelationships />
+  <d:ManyToOneRelationships />
+  <d:ObjectTypeCode>47</d:ObjectTypeCode>
+  <d:OneToManyRelationships />
+  <d:OwnershipType>None</d:OwnershipType>
+  <d:PrimaryIdAttribute>subscriptionid</d:PrimaryIdAttribute>
+  <d:PrimaryNameAttribute i:nil="true" />
+  <d:Privileges i:nil="true" />
+  <d:RecurrenceBaseEntityLogicalName
+      i:nil="true" />
+  <d:ReportViewName i:nil="true" />
+  <d:SchemaName>SubscriptionSyncEntryOffline</d:SchemaName>
+  <d:SyncToExternalSearchIndex>false</d:SyncToExternalSearchIndex>
+  <d:IntroducedVersion>8.0.0.0</d:IntroducedVersion>
+  <d:PrimaryImageAttribute i:nil="true" />
+  <d:CanChangeHierarchicalRelationship>
+    <b:CanBeChanged>false</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canchangehierarchicalrelationship</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:CanChangeHierarchicalRelationship>
+  <d:EntityHelpUrl i:nil="true" />
+  <d:EntityHelpUrlEnabled>false</d:EntityHelpUrlEnabled>
+  <d:CollectionSchemaName>SubscriptionSyncEntriesOffline</d:CollectionSchemaName>
+  <d:EntityColor i:nil="true" />
+  <d:IsOptimisticConcurrencyEnabled>false</d:IsOptimisticConcurrencyEnabled>
+  <d:Keys i:nil="true" xmlns:e="http://schemas.microsoft.com/xrm/7.1/Metadata" />
+  <d:LogicalCollectionName>subscriptionsyncentriesoffline</d:LogicalCollectionName>
+  <d:DaysSinceRecordLastModified>0</d:DaysSinceRecordLastModified>
+  <d:EntitySetName>subscriptionsyncentriesoffline</d:EntitySetName>
+  <d:IsEnabledForExternalChannels>false</d:IsEnabledForExternalChannels>
+  <d:IsOfflineInMobileClient>
+    <b:CanBeChanged>true</b:CanBeChanged>
+    <b:ManagedPropertyLogicalName>canmodifymobileclientoffline</b:ManagedPropertyLogicalName>
+    <b:Value>false</b:Value>
+  </d:IsOfflineInMobileClient>
+  <d:IsPrivate>false</d:IsPrivate>
+  <d:IsSLAEnabled>false</d:IsSLAEnabled>
+  <d:MobileOfflineFilters />
+</d:EntityMetadata>

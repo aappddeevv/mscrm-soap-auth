@@ -142,8 +142,8 @@ trait SoapHelpers {
   /** Get the contents of a file whose filename is the token hash. .cache is appended to filename. */
   def getCache(token: String): Option[String] = {
     val filename = (hash(token) + ".cache").toFile
-    if (filename.exists) Option(filename!)
-    else None
+    if (filename.exists) { logger.debug(s"Cache hit for token: $token, $filename"); Option(filename!) }
+    else { logger.debug(s"No cache hit for token: $token, $filename"); None }
   }
 
   /** Create a cache file whose filename is the token hash. .cache is appended to filename. */
@@ -413,7 +413,10 @@ case class OrganizationDetail(friendlyName: String,
   urlName: String,
   endpoints: Seq[Endpoint] = Nil)
 
-/** Value returned from the server. */
+/**
+ * Value returned from the server. A value from the
+ *  CRM may have multiple components to it.
+ */
 trait ServerValue {
   /** Raw server representation. */
   def repr: scala.xml.NodeSeq
@@ -432,6 +435,56 @@ case class TypedServerValue(text: String, repr: xml.NodeSeq, t: String) extends 
 
 /** A value from the server that represets an EntityReference. */
 case class EntityReferenceServerValue(text: String, repr: xml.NodeSeq, logicalName: String) extends ServerValue
+
+/** A value from an option set. Has <Value> as child. */
+case class OptionSetValue(text: String, repr: xml.NodeSeq) extends ServerValue
+
+/**
+ * Typeclass to expand out a server value to kv map. One attribute could
+ *  turn into multiple kv pairs depending on the type of server
+ *  value.
+ */
+trait ServerValueExpander[A <: ServerValue] {
+  def expand(attr: String, value: A): Map[String, String]
+}
+
+/** Set of expander implicits and an importable syntax. */
+object expanders {
+
+  implicit val unsetServerValueExpander = new ServerValueExpander[UnsetServerValue.type] {
+    def expand(attr: String, value: UnsetServerValue.type) = Map(attr -> "")
+  }
+
+  implicit val typedServerValueExpander = new ServerValueExpander[TypedServerValue] {
+    def expand(attr: String, v: TypedServerValue) = Map(attr -> v.text)
+  }
+
+  implicit val erServerValueExpander = new ServerValueExpander[EntityReferenceServerValue] {
+    def expand(attr: String, v: EntityReferenceServerValue) = Map(attr -> v.text, attr + "_target" -> v.logicalName)
+  }
+
+  implicit val osValueExpander = new ServerValueExpander[OptionSetValue] {
+    def expand(attr: String, v: OptionSetValue) = Map(attr -> v.text)
+  }
+
+  object syntax {
+    implicit class ExpandedServerValue[A <: ServerValue](sv: A) {
+      def expand(attr: String)(implicit expander: ServerValueExpander[A]) =
+        expander.expand(attr, sv)
+    }
+  }
+  
+  /** Expand any server value. */
+  def expand(attr: String, sv: ServerValue): Map[String, String] = {
+    import syntax._
+    sv match { 
+      case s: UnsetServerValue.type => s.expand(attr)
+      case s: TypedServerValue => s.expand(attr)
+      case s: EntityReferenceServerValue => s.expand(attr)
+      case s: OptionSetValue => s.expand(attr) 
+    }
+  }
+}
 
 /** Entity is a map of keys to values, pretty much. */
 case class Entity(attributes: Map[String, ServerValue] = collection.immutable.HashMap[String, ServerValue](),
@@ -454,6 +507,31 @@ case class Envelope(header: ResponseHeader, body: ResponseBody)
 /** Readers helpful in reading raw XML responses */
 object responseReaders {
 
+  import crm.sdk.metadata.readers.iTypeReader
+
+  /** Read <value> */
+  val entityReferenceValueReader = (
+    (__ \ "Id").read[String] and
+    nodeReader and
+    (__ \ "LogicalName").read[String])(EntityReferenceServerValue.apply _)
+
+  /** Read <value> */
+  val optionSetValueReader = (
+    (__ \ "Value").read[String] and
+    nodeReader)(OptionSetValue.apply _)
+
+  /** Read <value> */
+  val typedValueReader = (
+    nodeReader.map(_.text) and
+    nodeReader and
+    iTypeReader(CrmAuth.NSSchemaInstance).default(""))(TypedServerValue.apply _)
+
+  /** Read a value from the key-value pair. Read <value>. */
+  val valueReader =
+    optionSetValueReader orElse
+      entityReferenceValueReader orElse
+      typedValueReader
+
   /**
    * Impossibly hard due to awful SOAP encodings.
    *  Assumes that the type in the value element has a prefix and requires
@@ -461,26 +539,8 @@ object responseReaders {
    */
   val obtuseKeyValueReader: XmlReader[(String, ServerValue)] =
     XmlReader { xml =>
-      val typeReader = (__ \ "value").read[scala.xml.NodeSeq].map { vx =>
-        vx(0).attribute(CrmAuth.NSSchemaInstance, "type") match {
-          case Some(Seq(n)) if (n.length > 0) =>
-            val text = n(0).text
-            val pos = text.indexOf(":")
-            if (pos >= 0) text.substring(text.indexOf(":") + 1)
-            else text
-          case _ => ""
-        }
-      }
       val k = (__ \ "key").read[String].read(xml)
-      val valueReader = (
-        (__ \ "value" \ "Id").read[String] orElse
-        (__ \ "value" \ "Value").read[String] orElse
-        (__ \ "value").read[String])
-
-      val v = (valueReader and
-        (__ \ "value").read[scala.xml.NodeSeq] and
-        typeReader)(TypedServerValue.apply _).read(xml)
-
+      val v = (__ \ "value").read(valueReader).read(xml)
       val r = for {
         kk <- k
         vv <- v

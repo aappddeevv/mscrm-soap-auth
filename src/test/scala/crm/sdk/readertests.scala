@@ -74,6 +74,18 @@ class readerspec extends FlatSpec with Matchers {
   val multipleResponsePathReader: XmlReader[NodeSeq] = (__ \ "MultipleResponse").read
   val multipleResponsePathReaderJump: XmlReader[NodeSeq] = (__ \\ "MultipleResponse").read // find anywhere in children
 
+  
+    /** ParseError returned if the "type" is wrong. */
+    case class WrongTypeError(expected: String) extends ValidationError
+
+    /** Read an attribute. */
+    def iTypeReader(ns: String) = XmlReader.attribute[String](s"{$ns}type")
+
+    /** Fail fast if the i:type attribute does not match `t`. Return a NodeSeq reader to allow XmlReader composition. */
+    def filteritype(t: String) = nodeReader.filter(WrongTypeError(t))(n =>
+      iTypeReader("mynamespace").read(n).getOrElse("") == t)
+
+  
   "responseReaders" should "read a Fault" in {
     val r = faultReader.read(faultXml)
     r.toOption shouldBe Some(IFault(1, "Error"))
@@ -183,8 +195,6 @@ class readerspec extends FlatSpec with Matchers {
 
     case class WrongTypeError(expected: String) extends ValidationError
 
-    // Fail if the namespaced attribute is not a match and return a nodeseq so we can compose it
-    def filteritype(t: String) = nodeReader.filter(WrongTypeError(t))(n => elTypeReader.read(n).getOrElse("") == t)
     
     val stringElReader: XmlReader[StringEl] = filteritype("string").map(n => StringEl(n.text))
     val intElReader = filteritype("int").map(n => IntEl(n.text.toInt))

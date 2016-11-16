@@ -53,13 +53,13 @@ trait StreamHelpers {
   /**
    * Combine all attributes and formatted values to a map. Rename
    *  formatted value attribute names by appending a suffix.
-   *  
+   *
    *  @param includeFormatted true, include formatted values, otherwise do not include
    */
   def toAttributeMap(includeFormatted: Boolean = true, suffix: String = "_formatted")(e: sdk.Entity): Pipe[Task, sdk.Entity, Map[String, String]] =
     pipe.lift { ent =>
-      ent.attributes.mapValues(_.text) ++ 
-        (if(includeFormatted) ent.formattedAttributes.map { case (k, v) => (k + suffix, v) } else Map())
+      ent.attributes.mapValues(_.text) ++
+        (if (includeFormatted) ent.formattedAttributes.map { case (k, v) => (k + suffix, v) } else Map())
     }
 
   /**
@@ -71,7 +71,7 @@ trait StreamHelpers {
       .replace("\"", "")
       .replace("\r", "")
       .replace("\n", "\\n")
-      .replaceAll("[^\\u0000-\\uFFFF]", ""))
+      .replaceAll("[^\\u0000-\\uFFFF]", "")).trim
 
   /**
    * Pipe that makes CSV output rows. All of the attributes in the
@@ -81,6 +81,7 @@ trait StreamHelpers {
    *  ordered using `cols`.
    *
    *  @param cols Columns to output. cols order dictates output order.
+   *  cols is currently ignored.
    *
    *  TODO: Don't be slow.
    */
@@ -91,16 +92,16 @@ trait StreamHelpers {
       keys.map(ent.attributes(_).text).map(cleanString(_)).mkString(rs) + eor
     }
 
-  /** Make an output with the attribute order (from the keys) are dictated by cols. 
+  /**
+   * Make an output with the attribute order (from the keys) are dictated by cols.
    *  Missing keys in the input map are mapped to an emptyValue so the output
-   *  always has 
+   *  always has
    */
-  def makeOutputRowFromMap(rs: String = ",", eor: String ="\n", emptyValue: String = "")(cols: Traversable[String]): Pipe[Task, Map[String, String], String] =
+  def makeOutputRowFromMap(rs: String = ",", eor: String = "\n", emptyValue: String = "")(cols: Traversable[String]): Pipe[Task, Map[String, String], String] =
     pipe.lift { m =>
       cols.map(c => m.get(c).map(v => (c, v)).getOrElse(c, emptyValue)).mkString(rs) + eor
     }
-  
-  
+
   //  def defaultMakeOutputRow(cols: Traversable[String]) = makeOutputRow() _
   val defaultMakeOutputRow = makeOutputRowFromEntity()(Seq())
 

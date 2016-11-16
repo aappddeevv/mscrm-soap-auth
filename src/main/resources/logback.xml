@@ -19,7 +19,7 @@
 	</appender>
 
 	<logger name="crm" level="info" />
-
+    
 	<root level="error">
 		<appender-ref ref="FILE" />
 	</root>

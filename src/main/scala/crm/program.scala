@@ -76,7 +76,7 @@ case class Config(
   keyfileChunkFetchSize: Int = 5000,
   take: Option[Long] = None,
   drop: Option[Long] = None,
-  outputFormattedValues: Boolean = false)
+  outputFormattedValues: Boolean = true)
 
 /**
  *  Create a key file for a single entity. A key file contains the primary key
@@ -186,6 +186,7 @@ object program {
           action((x, c) => c.copy(output = x)))
     note("You need a username/password and url to run this command.")
     note("")
+
     cmd("auth").action((_, c) => c.copy(mode = "auth")).
       text("Check that authentication works. This is the default command.")
     note("You need a username/password and -r URL to run the auth command.")
@@ -237,15 +238,12 @@ object program {
           .action((x, c) => c.copy(queryFilters = c.queryFilters :+ x)),
         opt[Unit]("count").text("Count records for the given entity name expressed in the filters.")
           .action((x, c) => c.copy(queryType = "countEntities")),
-        opt[Unit]("output-formatted-values").text("Output formatted values in additition to the attribute values.")
-          .action((x, c) => c.copy(outputFormattedValues = true)),
-
-        //        opt[Int]("keyfile-chunksize").text("Number of keys per key file.").
-        //          action((x, c) => c.copy(keyfileChunkSize = x)),
+        opt[Boolean]("output-formatted-values").text("Output formatted values in additition to the attribute values.")
+          .action((x, c) => c.copy(outputFormattedValues = x)),
         opt[String]("create-partition").text("Create a set of persistent primary key partitions for entity.").
           action((x, c) => c.copy(keyfileEntity = x, queryType = "partition")),
-        //        opt[Int]("part-concurrency").text("Concurrency per partition.").
-        //          action((x, c) => c.copy(pconcurrency = x)),
+        opt[Unit]("create-attribute-file").text("Create an attribute file that can be used for downloading. Download, edit then use --attribute-file. Output is to attributes.csv.").
+          action((x, c) => c.copy(queryType = "createAttributeFile")),
         opt[Int]("keyfile-chunk-fetch-size").text("Fetch size when using a keyfile to dump records.").
           action((x, c) => c.copy(keyfileChunkFetchSize = x)),
         opt[Int]("take").text("Take n rows.").
@@ -562,11 +560,14 @@ object program {
             .through(text.lines)
             .filter(s => !s.trim.isEmpty && !s.startsWith("#"))
 
-        /** Create a stream of output rows given an Envelope input. 
-         *  flatMap this into a stream of Envelopes.
+        /**
+         * Create a stream of output rows given an Envelope input.
+         *  flatMap this into a stream of Envelopes. The first
+         *  output row is the column header which is derived from
+         *  the keys of the Entity's attributes and formatted values.
          */
-        def envelopesToStringRows(entityDesc: EntityDescription, cols: Traversable[String])(e: Envelope) = {
-          Stream.emit(e)
+        def envelopesToStringRows(entityDesc: EntityDescription, cols: Traversable[String])(e: Envelope): Stream[Task, String] = {
+          val s = Stream.emit(e)
             .through(toEntities)
             .flatMap { Stream.emits }
             .drop(config.drop getOrElse 0L)
@@ -577,7 +578,32 @@ object program {
             .through(reportEveryN(dump.statusFrequency, (ent: sdk.Entity, index: Int) => {
               Task.delay(println(s"$instantString: ${entityDesc.logicalName}: Processed $index records."))
             }))
-            .through(dump.toOutputProcessor)
+          //s.through(dump.toOutputProcessor)
+
+          def makeRow(e: Entity): String = {
+            val attrs = e.attributes.flatMap {
+              case (k, v) => expanders.expand(k, v)
+            } ++
+              (if(config.outputFormattedValues) e.formattedAttributes.map { case (k, v) => (k + "__formattedValue", v) } else Map.empty[String, String])
+            val line = attrs.keys.toList.sorted.map { k => cleanString(attrs(k)) }.mkString(",") + "\n"
+            line
+          }
+
+          def entityToColumnNames(e: Entity): Traversable[String] = {
+            val attrs = e.attributes.flatMap {
+              case (k, v) => expanders.expand(k, v).keys
+            } ++ 
+            (if(config.outputFormattedValues) e.formattedAttributes.keys.map(_ + "__formattedValue") else Seq())
+            attrs.toList.sorted
+          }
+
+          val headerAndRows = s.take(1).flatMap { r =>
+            val cols = entityToColumnNames(r)
+            val m = makeRow(r)
+            Stream(cols.mkString(",") + "\n", m)
+          } ++ s.tail.map(makeRow)
+
+          headerAndRows
         }
 
         /**
@@ -601,8 +627,8 @@ object program {
             else Stream.empty
 
           import java.nio.file.StandardOpenOption
-          (header ++ rows).
-            through(text.utf8Encode).
+          //(header ++ rows).
+          rows.through(text.utf8Encode).
             to(fs2.io.file.writeAllAsync[Task](java.nio.file.Paths.get(outputFile),
               List(StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))).
             map(_ => s"$entity: Completed dumping records.")
@@ -711,7 +737,7 @@ object program {
                   }
 
                 case Xor.Left(error) =>
-                  Stream.emit(Stream.emit(s"Error during start of processing: $error}"))
+                  Stream.emit(Stream.emit(s"Error during start of processing: $error"))
               }
             }
           }
@@ -830,7 +856,7 @@ object program {
                   }
 
               case Xor.Left(error) =>
-                s"Error during processing: $error}"
+                s"Error during processing: $error"
             }
           }
         }
@@ -913,7 +939,7 @@ object program {
                     }
                   }
                 case Xor.Left(error) =>
-                  Stream.emit(Stream.emit(s"Error during start of processing: $error}"))
+                  Stream.emit(Stream.emit(s"Error during start of processing: $error"))
               }
             }
           }
@@ -929,6 +955,46 @@ object program {
           case _ =>
         }
         tpool.shutdown
+        tpool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
+
+      case "createAttributeFile" =>
+        println(s"Creating attribute file attributes.csv. Edit with a spreadsheet then use for downloading.")
+
+        import sdk.metadata._
+        import sdk.metadata.readers._
+        import java.util.concurrent.Executors
+        val tpool = Executors.newWorkStealingPool(config.parallelism + 1)
+        implicit val ec = scala.concurrent.ExecutionContext.fromExecutor(tpool)
+
+        def orgAuthF = orgServicesAuthF(Http, config.username, config.password, config.url, config.region, config.leaseTime)
+
+        val output = orgAuthF.flatMap { orgAuth =>
+          entityMetadata(Http, orgAuth, config.url).map {
+            _ match {
+              case Xor.Right(schema) =>
+                logger.debug(s"Using schema: $schema")
+                println(s"Found ${schema.entities.size} entities to consider.")
+                val f = "attributes.csv".toFile
+                f < "entity, attribute, download\n"
+                val sb = new StringBuilder
+                var counter: Int = 0
+                schema.entities.foreach { e =>
+                  e.retrievableAttributes.foreach { a =>
+                    val line = s"${e.logicalName},${a.logicalName},y\n"
+                    sb.append(line)
+                    counter += 1
+                  }
+                }
+                f << sb.toString
+                s"Output ${counter} lines to attributes.csv"
+              case Xor.Left(error) => s"Error during processing: $error"
+
+            }
+          }
+        }
+        val result = Await.result(output, Duration.Inf)
+        tpool.shutdown
+        println(result)
         tpool.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)
     }
   }

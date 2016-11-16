@@ -28,6 +28,7 @@ them shortly.
 metadata
 * Download an org's metadata.
 * Download your discovery WSDL.
+* Download a list of entities and attributes for customizing entity downloads.
 
 auth
 * Run a whoami
@@ -38,10 +39,14 @@ query
 * Count all entities in an org.
 * Dump attributes for an entity to a file, basically an extract to CSV. The download can
 run very fast if you first create a "key" partition, it shoud be the fastest downloader
-anywhere that is only constrained by memory size.
+that is only constrained by memory size. Formatted values can be downloaded and some
+types of CRM values are "expanded" automatically into multiple attributes. You can
+restrict the attributes downloaded through an attributes file (see metadata).
 
 other
-* Run --help to print show other capabilites.
+* Run --help to print show other capabilities.
 
 
-Many thanks to contributors, a particular person in general recently who remains anonymous.
+Many thanks to contributors, a particular person in general recently who remains anonymous
+but was instrumental in pushing this application forward.
+

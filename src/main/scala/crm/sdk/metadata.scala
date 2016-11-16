@@ -169,18 +169,9 @@ object metadata {
 
   object readers {
 
-    /** ParseError returned if the "type" is wrong. */
-    case class WrongTypeError(expected: String) extends ValidationError
-
-    /** Read an attribute. */
-    def iTypeReader(ns: String) = XmlReader.attribute[String](s"{$ns}type")
-
-    /** Fail fast if the i:type attribute does not match `t`. Return a NodeSeq reader to allow XmlReader composition. */
-    def filteritype(t: String) = nodeReader.filter(WrongTypeError(t))(n => iTypeReader(CrmAuth.NSSchemaInstance).read(n).getOrElse("") == t)
-
     val schemaNameReader = (__ \ "SchemaName").read[String]
     val logicalNameReader = (__ \ "LogicalName").read[String]
-    val attributeTypeReader = (__ \ "AttributeType" \ "Value").read[String]
+    val attributeTypeReader = (__ \ "AttributeType").read[String]
     val isValidForReadReader = (__ \ "IsValidForRead").read[Boolean]
     val isPrimaryIdReader = (__ \ "IsPrimaryId").read[Boolean]
     val isLogicalReader = (__ \ "IsLogical").read[Boolean]
@@ -275,11 +266,21 @@ object metadata {
       entityLogicalNameReader and
       optionSetReader)(PicklistAttribute.apply _)
 
-    implicit val attributeReader: XmlReader[Attribute] =
+    implicit val attributeReader: XmlReader[Attribute] = 
       stringAttributeReader orElse
-        lookupAttributeReader orElse
-        pickListAttributeReader orElse
-        basicAttributeReader
+    lookupAttributeReader orElse
+    pickListAttributeReader orElse
+    basicAttributeReader
+
+    /** ParseError returned if the "type" is wrong. */
+    case class WrongTypeError(expected: String) extends ValidationError
+
+    /** Read an attribute. */
+    def iTypeReader(ns: String) = XmlReader.attribute[String](s"{$ns}type")
+
+    /** Fail fast if the i:type attribute does not match `t`. Return a NodeSeq reader to allow XmlReader composition. */
+    def filteritype(t: String) = nodeReader.filter(WrongTypeError(t))(n =>
+      iTypeReader(CrmAuth.NSSchemaInstance).read(n).getOrElse("") == t)
 
     implicit val relationshipReader: XmlReader[Relationship] = (
       (__ \ "SchemaName").read[String] and
@@ -293,10 +294,10 @@ object metadata {
     /** Navigate to "Attributes" */
     val attributesReader: XmlReader[xml.NodeSeq] = (__ \\ "Attributes").read
 
-    /** Read a single AttributeMetdat */
+    /** Read a single AttributeMetdata */
     val attributeMetadataReader: XmlReader[xml.NodeSeq] = (__ \\ "AttributeMetadata").read
 
-    implicit val entityReader: XmlReader[EntityDescription] = (
+    implicit val entityDescriptionReader: XmlReader[EntityDescription] = (
       (__ \ "SchemaName").read[String] and
       (__ \ "LogicalName").read[String] and
       (__ \ "PrimaryIdAttribute").read[String] and
