@@ -54,6 +54,7 @@ case class Config(
   objects: String = "Entity Relationships Attributes",
   output: String = "metadata.xml",
   discoveryAction: String = "listRegions",
+  metadataAction: String = "dumpRawXml",
   wsdlFilename: String = "wsdl.xml",
   sdkVersion: Option[String] = None,
   queryType: String = "countEntities",
@@ -76,7 +77,9 @@ case class Config(
   keyfileChunkFetchSize: Int = 5000,
   take: Option[Long] = None,
   drop: Option[Long] = None,
-  outputFormattedValues: Boolean = true)
+  outputFormattedValues: Boolean = true,
+  formattedValuesSuffix: String = "_fVz",
+  outputExplodedValues: Boolean = true)
 
 /**
  *  Create a key file for a single entity. A key file contains the primary key
@@ -175,16 +178,16 @@ object program {
     note("")
 
     cmd("metadata").action((_, c) => c.copy(mode = "metadata")).
-      text("Obtain metadata from an organization").
+      text("Obtain entity metadata from an organization").
       children(
-        urlOpt.required(),
-        opt[String]('f', "filter").valueName("<filename>").text(s"Input regexp inclusion filter, one filter per line. No filters means accept everything. Default reads ${defaultConfig.filterFilename} if present.").
-          action((x, c) => c.copy(filterFilename = x)),
+        opt[String]('r', "url").optional().valueName("<url>").text("Organization service url.").
+          action((x, c) => c.copy(url = x)),
         opt[String]('o', "objects").valueName("<Entity Relationship Attributes>").text("What metadata to return. Space separated list. Use quotes in shell. All metadata is returned by default.").
           action((x, c) => c.copy(objects = x)),
-        opt[String]("output").valueName("<filename>").text("Output file for metadata retrieved using -m. The entire SOAP envelope is output.").
+        opt[String]("output").valueName("<filename>").text("Output file for metadata retrieved using -m. Default is '${config.objects}'").
           action((x, c) => c.copy(output = x)))
     note("You need a username/password and url to run this command.")
+    note("The entire SOAP response envelope is output when dumping entity metadata. Individual entries are under EntityMetadata")
     note("")
 
     cmd("auth").action((_, c) => c.copy(mode = "auth")).
@@ -240,6 +243,10 @@ object program {
           .action((x, c) => c.copy(queryType = "countEntities")),
         opt[Boolean]("output-formatted-values").text("Output formatted values in additition to the attribute values.")
           .action((x, c) => c.copy(outputFormattedValues = x)),
+        opt[Boolean]("output-exploded-values").text("Output eploded values in additition to the attribute values.")
+          .action((x, c) => c.copy(outputExplodedValues = x)),
+        opt[String]("formatted-values-suffix").text("Suffix to put on the attribute names that represent formatted values.").
+          action((x, c) => c.copy(formattedValuesSuffix = x)),
         opt[String]("create-partition").text("Create a set of persistent primary key partitions for entity.").
           action((x, c) => c.copy(keyfileEntity = x, queryType = "partition")),
         opt[Unit]("create-attribute-file").text("Create an attribute file that can be used for downloading. Download, edit then use --attribute-file. Output is to attributes.csv.").
@@ -252,8 +259,6 @@ object program {
           action((x, c) => c.copy(drop = Option(x))),
         opt[Unit]("ignore-keyfiles").text("Ignore keyfiles during a dump, if present for an entity.").
           action((x, c) => c.copy(ignoreKeyFiles = true)),
-        //        opt[String]("partition-prefix").text("Prefix for partitions files. Defaults to entity name.").
-        //          action((x, c) => c.copy(keyfilePrefix = x)),
         opt[String]("dump").valueName("<entity name interpreted as a regex>").text("Dump entity data into file. Default output file is 'entityname'.csv.").
           action((x, c) => c.copy(queryType = "dump", dump = c.dump.copy(entity = x))),
         opt[String]("output-filename").valueName("<dump filename>").text("Dump file name. Default is entitityname.csv").
@@ -264,12 +269,13 @@ object program {
           action((x, c) => c.copy(dump = c.dump.copy(statusFrequency = x))),
         opt[Int]("batchsize").valueName("<batch size as int>").text("Number of records to retrieve for each server call.").
           action((x, c) => c.copy(dump = c.dump.copy(batchSize = x))),
-        opt[String]("attribute-file").text("File of attributes, one per line.").
+        opt[String]("attribute-file").text("CSV file  of attributes, (entity logical name, attribute logical name, download y/n).").
           action((x, c) => c.copy(dump = c.dump.copy(attributeListFilename = Some(x)))),
         opt[String]("attributes").text("Comma separate list of attributes to dump.").
           action((x, c) => c.copy(dump = c.dump.copy(attributeList = Some(x.split(","))))))
     note("Attribute file content and attributes specified in --attributes are merged.")
     note("All double quotes and backslashes are removed from dumped values. Formatted values are not dumped.")
+    note("")
 
     cmd("test").action((_, c) => c.copy(mode = "test")).text("Run some tests.").
       children(
@@ -305,6 +311,7 @@ object program {
           if (emptyUOrP(c) || c.url.trim.isEmpty) failure("Queries require a username, password and url.")
           else success
         case "metadata" =>
+          //println(s"blah: " + c.username + ", " + c.password + ", " + c.url)
           if (emptyUOrP(c) || c.url.trim.isEmpty)
             failure("Metadata requires an username, password and url.")
           else success
@@ -581,27 +588,36 @@ object program {
           //s.through(dump.toOutputProcessor)
 
           def makeRow(e: Entity): String = {
-            val attrs = e.attributes.flatMap {
-              case (k, v) => expanders.expand(k, v)
-            } ++
-              (if(config.outputFormattedValues) e.formattedAttributes.map { case (k, v) => (k + "__formattedValue", v) } else Map.empty[String, String])
+            val avalues =
+              if (config.outputExplodedValues) e.attributes.flatMap { case (k, v) => expanders.expand(k, v) }
+              else e.attributes.mapValues(_.text)
+
+            val fvalues =
+              if (config.outputFormattedValues) e.formattedAttributes.map { case (k, v) => (k + config.formattedValuesSuffix, v) }
+              else Map.empty[String, String]
+
+            val attrs = avalues ++ fvalues
             val line = attrs.keys.toList.sorted.map { k => cleanString(attrs(k)) }.mkString(",") + "\n"
             line
           }
 
           def entityToColumnNames(e: Entity): Traversable[String] = {
-            val attrs = e.attributes.flatMap {
-              case (k, v) => expanders.expand(k, v).keys
-            } ++ 
-            (if(config.outputFormattedValues) e.formattedAttributes.keys.map(_ + "__formattedValue") else Seq())
+            val akeys =
+              if (config.outputExplodedValues) e.attributes.keys
+              else e.attributes.flatMap { case (k, v) => expanders.expand(k, v).keys }
+
+            val fkeys =
+              if (config.outputFormattedValues) e.formattedAttributes.keys.map(_ + config.formattedValuesSuffix)
+              else Seq()
+
+            val attrs = akeys ++ fkeys
             attrs.toList.sorted
           }
 
-          val headerAndRows = s.take(1).flatMap { r =>
-            val cols = entityToColumnNames(r)
-            val m = makeRow(r)
-            Stream(cols.mkString(",") + "\n", m)
-          } ++ s.tail.map(makeRow)
+          def deriveFromFirst(first: Entity => String, rest: Entity => String): Pipe[Task, Entity, String] =
+            s => s.pull[Task, String](h => h.receive1 { (a, h) => Pull.output1(first(a)) >> Pull.output1(rest(a)) >> h.map(rest).echo })
+
+          val headerAndRows = s.through(deriveFromFirst(e => entityToColumnNames(e).mkString(",") + "\n", makeRow))
 
           headerAndRows
         }
@@ -1298,36 +1314,28 @@ object program {
   }
 
   def metadata(config: Config): Unit = {
-    import Defaults._
-
-    println("Authenticating...")
-    val header = GetHeaderOnline(config.username, config.password, config.url)
-
-    // open filter filename if present
-    val filters = nonFatalCatch withApply { _ => Seq() } apply config.filterFilename.toFile.lines
-    println("# entity inclusion filters to use: " + filters.size)
-    if (filters.size == 0) println("Accept all entities.")
-
-    println("Obtaining metadata...")
-    val metadata = sasync {
-      val h = await(header)
-      val req = createPost(config) << RetrieveAllEntities(h, config.objects).toString
-      val m = await(Http(req OKWithBody as.xml.Elem).unwrapEx)
-      println("Obtained metadata for entities: ")
-      nonFatalCatch withApply { t =>
-        println(s"Unable to write metadata output to ${config.output}")
-      } apply config.output.toFile.printWriter(true).map(_.write(m.toString))
-      (m.child \\ "EntityMetadata").map { em: xml.Node =>
-        (em \\ "SchemaName").text
-      }.filter(_.length > 0).sorted.foreach(println)
-    } recover {
-      case scala.util.control.NonFatal(ex) =>
-        println("Exception obtaining metadata")
-        println("Message: " + ex.getMessage)
-        logger.error(ex)("Exception during processing")
+    config.metadataAction match {
+      case "dumpRawXml" =>
+        import Defaults._
+        println("Authenticating...")
+        val header = GetHeaderOnline(config.username, config.password, config.url)
+        println(s"Output metadata file: ${config.output}")
+        println("Obtaining metadata...")
+        val metadata = sasync {
+          val h = await(header)
+          val req = createPost(config) << RetrieveAllEntities(h, config.objects).toString
+          val m = await(Http(req OKWithBody as.xml.Elem).unwrapEx)
+          config.output.toFile.printWriter(true).map(_.write(m.toString))
+        } recover {
+          case scala.util.control.NonFatal(ex) =>
+            println("Exception obtaining metadata")
+            println("Message: " + ex.getMessage)
+            logger.error(ex)("Exception during processing")
+        } andThen { 
+          case _ => Http.shutdown
+        }
+        catchTimeout("metadata") { Await.ready(metadata, config.timeout seconds) }
     }
-    catchTimeout("metadata") { Await.ready(metadata, config.timeout seconds) }
-    Thread.sleep(10000)
   }
 
   /**

@@ -26,14 +26,15 @@ them shortly.
 ##Capabilities
 
 metadata
-* Download an org's metadata.
+* Download an org's metadata describing the entities.
+
+discovery
 * Download your discovery WSDL.
-* Download a list of entities and attributes for customizing entity downloads.
+* List endpoints given your userid, password and region.
+* Find a given org data services SOAP URL given an username/password and region.
 
 auth
-* Run a whoami
-* Show all possible orgs for a given username/password and region.
-* Find a given org data services SOAP URL given a username/password and region.
+* Run a whoami to confirm your ability to login.
 
 query
 * Count all entities in an org.
@@ -42,6 +43,7 @@ run very fast if you first create a "key" partition, it shoud be the fastest dow
 that is only constrained by memory size. Formatted values can be downloaded and some
 types of CRM values are "expanded" automatically into multiple attributes. You can
 restrict the attributes downloaded through an attributes file (see metadata).
+* Create a spreadsheet friendly list of enities and attribute for customizing the download.
 
 other
 * Run --help to print show other capabilities.
