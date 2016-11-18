@@ -33,10 +33,39 @@ import dispatch.retry._
 import scala.concurrent.duration._
 
 /**
- * Authentication information for creating security headers.
- * @param url URL that the authentication is related to.
+ *  Default namespaces when dealing with CRM SOAP messages.
  */
-case class CrmAuthenticationHeader(Header: scala.xml.Elem = null, key: String = "", token1: String = "", token2: String = "", Expires: Date = null, url: String = "")
+trait SoapNamespaces {
+
+  val NSEnvelope = "http://schemas.xmlsoap.org/soap/envelope/"
+  val NSContracts = "http://schemas.microsoft.com/xrm/2011/Contracts"
+  val NSServices = "http://schemas.microsoft.com/xrm/2011/Contracts/Services"
+  val NSSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance"
+  val NSSchemaX = "http://www.w3.org/2001/XMLSchema"
+  val NSCollectionsGeneric = "http://schemas.datacontract.org/2004/07/System.Collections.Generic"
+  val NSMetadata = "http://schemas.microsoft.com/xrm/2011/Metadata"
+
+  /** Namespace lookup using some standard default NS abbrevs. */
+  val DefaultNS: collection.Map[String, String] = collection.Map(
+    "s" -> NSEnvelope,
+    "a" -> NSContracts,
+    "i" -> NSSchemaInstance,
+    "d" -> NSSchemaX,
+    "b" -> NSCollectionsGeneric,
+    "c" -> NSMetadata)
+
+ type NSMap = collection.Map[String, String]   
+    
+ object implicits {
+    implicit val defaultNS: NSMap = DefaultNS
+  }
+    
+}
+
+object SoapNamespaces extends SoapNamespaces
+
+
+import SoapNamespaces._
 
 trait CrmAuth {
 
@@ -271,6 +300,9 @@ trait CrmAuth {
   private[this] val urnMap = mapValueReader[String].read(_config, "auth.urlToUrn")
   private[this] val defaultUrn = _config.as[String]("auth.defaultUrn")
 
+  /** Region abbrevs mapped to their discovery URLs. */
+  val locationsToDiscoveryURL = mapValueReader[String].read(_config, "auth.discoveryUrls")
+
   /**
    * Gets the correct URN Address based on the Online region.
    *
@@ -283,27 +315,6 @@ trait CrmAuth {
     val urlx = new java.net.URL(url.toUpperCase)
     urnMap.get(urlx.getHost) getOrElse defaultUrn
   }
-
-  /** Region abbrevs mapped to their discovery URLs. */
-  val locationsToDiscoveryURL = mapValueReader[String].read(_config, "auth.discoveryUrls")
-
-  val NSEnvelope = "http://schemas.xmlsoap.org/soap/envelope/"
-  val NSContracts = "http://schemas.microsoft.com/xrm/2011/Contracts"
-  val NSServices = "http://schemas.microsoft.com/xrm/2011/Contracts/Services"
-  val NSSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance"
-  val NSSchemaX = "http://www.w3.org/2001/XMLSchema"
-
-  val NSCollectionsGeneric = "http://schemas.datacontract.org/2004/07/System.Collections.Generic"
-  val NSMetadata = "http://schemas.microsoft.com/xrm/2011/Metadata"
-
-  /** Namespace lookup using default NS abbrevs. */
-  val DefaultNS = collection.Map(
-    "s" -> NSEnvelope,
-    "a" -> NSContracts,
-    "i" -> NSSchemaInstance,
-    "d" -> NSSchemaX,
-    "b" -> NSCollectionsGeneric,
-    "c" -> NSMetadata)
 
   /** HTTP headers for most SOAP calls. */
   val StandardHttpHeaders = collection.Map(
@@ -399,6 +410,25 @@ trait CrmAuth {
    *
    * The final XML request envelope is debug logged. An exception is thrown
    * if a Fault or error is encountered. Errors and SOAP faults are also logged.
+   * 
+   * This function is usually called inside a monad that can provide a HttpExecutor
+   * and CrmAuthenticationHeader. This function only return a single Envelope
+   * but the request may require many Envelopes and the auth needs to be valid
+   * for each call into this function.
+   * 
+   * @param T Type of Envelope expected.
+   * @param http Http executor to execute the request.
+   * @param xmlBody The HTTP reqest body. It must be a valid SOAP request i.e. an Envelope.
+   * @param orgAuth Auth header
+   * @param pageInfo Paging information that is updated based on the results of this call. The page number is incremented. (SHOULD THIS BE OUTSIDE THIS FUNCTION?)
+   * @param retrys Number of automatica HTTP retries.
+   * @param pauseInSeconsd Pause time between retries.
+   * 
+   * @param ec ExecutionContext
+   * @param reader Translator between response XML body and T
+   * @param strategy fs2 Strategy
+   * 
+   * @return Task of either a Throwable or (Envelope, updated PagingInfo, flag indicating more records are available)
    */
   def getMultipleRequestPage[T <: Envelope](http: HttpExecutor, xmlBody: scala.xml.Elem, orgAuth: CrmAuthenticationHeader, pageInfo: Option[PagingInfo],
     retrys: Int = 5, pauseInSeconds: Int = 30)(
@@ -411,7 +441,7 @@ trait CrmAuth {
       val headers = Map("SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
       val req = createPost(orgAuth.url) <:< headers << qxml.toString
       logger.debug("Query entity request: " + req.toRequest)
-      http(req)(ec).either.map {
+      http(req).either.map {
         _ match {
           case Right(response) =>
             logger.debug(s"Response: ${show(response)}")

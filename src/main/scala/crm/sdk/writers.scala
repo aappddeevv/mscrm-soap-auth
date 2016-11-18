@@ -17,24 +17,12 @@ import com.lucidchart.open.xtract._
 import play.api.libs.functional.syntax._
 import scala.language.implicitConversions
 
-/**
- *  General purpose XML writer typeclass.
- */
-trait CrmXmlWriter[-A] {
-  def write(a: A): xml.NodeSeq
+import SoapNamespaces.NSMap
 
-  def transform(transformer: xml.NodeSeq => xml.NodeSeq): CrmXmlWriter[A] = CrmXmlWriter[A] { a =>
-    transformer(this.write(a))
-  }
-
-  def transform(transformer: CrmXmlWriter[xml.NodeSeq]): CrmXmlWriter[A] = CrmXmlWriter[A] { a =>
-    transformer.write(this.write(a))
-  }
-}
-
-trait DefaultCrmXmlWriters {
+object crmwriters {
 
   import scala.xml._
+  import CrmXmlWriter._
 
   /**
    * Fast node transformer.
@@ -50,11 +38,6 @@ trait DefaultCrmXmlWriters {
       case e: Elem => e.copy(child = e.child map (c => trans(c, pf)))
       case other => other
     }
-
-  /**
-   * Get a writer without having to use the implicitly syntax.
-   */
-  def of[A](implicit r: CrmXmlWriter[A]): CrmXmlWriter[A] = r
 
   /** Assumes fetch is the top level Elem. */
   implicit val fetchXmlWriter: CrmXmlWriter[FetchExpression] = CrmXmlWriter { fe =>
@@ -74,8 +57,37 @@ trait DefaultCrmXmlWriters {
     </query>
   }
 
-  implicit val queryExpressionWriter: CrmXmlWriter[QueryExpression] = CrmXmlWriter { qe =>
-    /**
+  /** Uses b namespace. */
+  implicit def columnsWriter(implicit ns: NSMap) = CrmXmlWriter[ColumnSet] { c =>
+    c match {
+      case Columns(names) =>
+        <b:ColumnSet>
+          <b:AllColumns>false</b:AllColumns>
+          <b:Columns xmlns:c="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
+            { names.map(n => <c:string>{ n }</c:string>) }
+          </b:Columns>
+        </b:ColumnSet>
+      case AllColumns =>
+        <b:ColumnSet><b:AllColumns>true</b:AllColumns></b:ColumnSet>
+
+    }
+  }
+
+  /** Uses b namespace. */
+  implicit def pagingInfoWriter(implicit ns: NSMap) = CrmXmlWriter[PagingInfo] { p =>
+    <b:PageInfo>
+      <b:Count>{ p.count }</b:Count>
+      <b:PageNumber>{ p.page }</b:PageNumber>
+      <b:PagingCookie>{ p.cookie.getOrElse("") }</b:PagingCookie>
+      <b:ReturnTotalRecordCount>
+        { p.returnTotalRecordCount }
+      </b:ReturnTotalRecordCount>
+    </b:PageInfo>
+  }
+
+  implicit def queryExpressionWriter(implicit ns: NSMap) = CrmXmlWriter[QueryExpression] { qe =>
+    
+    /*
      * <query i:type="b:QueryExpression" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
      * <b:ColumnSet>
      * <b:AllColumns>false</b:AllColumns>
@@ -103,7 +115,7 @@ trait DefaultCrmXmlWriters {
      * </query>
      */
     <query i:type="b:QueryExpression" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
-      { qe.columns.write }
+      { CrmXmlWriter.of[ColumnSet].write(qe.columns) }
       <b:Criteria>
         <b:Conditions/>
         <b:FilterOperator>And</b:FilterOperator>
@@ -116,52 +128,9 @@ trait DefaultCrmXmlWriters {
     </query>
   }
 
-  implicit def conditionsWriter[T] = new CrmXmlWriter[Seq[ConditionExpression[T]]] {
-    def write(ce: Seq[ConditionExpression[T]]) =
-      <b:Conditions>
-      </b:Conditions>
+  implicit def conditionsWriter[T](implicit ns: NSMap) = CrmXmlWriter[Seq[ConditionExpression[T]]] { s =>
+    <b:Conditions>
+    </b:Conditions>
   }
 
-  /** Uses b namespace. */
-  implicit val pagingInfoWriter = new CrmXmlWriter[PagingInfo] {
-    def write(p: PagingInfo) =
-      <b:PageInfo>
-        <b:Count>{ p.count }</b:Count>
-        <b:PageNumber>{ p.page }</b:PageNumber>
-        <b:PagingCookie>{ p.cookie.getOrElse("") }</b:PagingCookie>
-        <b:ReturnTotalRecordCount>
-          { p.returnTotalRecordCount }
-        </b:ReturnTotalRecordCount>
-      </b:PageInfo>
-  }
-
-  /** Uses b namespace. */
-  implicit val columnsWriter: CrmXmlWriter[ColumnSet] = CrmXmlWriter { c =>
-    c match {
-      case AllColumns() =>
-        <b:ColumnSet><b:AllColumns>true</b:AllColumns></b:ColumnSet>
-      case Columns(names) =>
-        <b:ColumnSet>
-          <b:AllColumns>false</b:AllColumns>
-          <b:Columns xmlns:c="http://schemas.microsoft.com/2003/10/Serialization/Arrays">
-            { names.map(n => <c:string>{ n }</c:string>) }
-          </b:Columns>
-        </b:ColumnSet>
-    }
-  }
-
-  /**
-   * Allow you to write `yourobject.write`.
-   */
-  implicit class RichCrmXmlWriter[A](a: A) {
-    def write(implicit writer: CrmXmlWriter[A]) = writer.write(a)
-  }
-
-}
-
-object CrmXmlWriter extends DefaultCrmXmlWriters {
-  def apply[A](f: A => xml.NodeSeq): CrmXmlWriter[A] = new CrmXmlWriter[A] {
-    def write(a: A): xml.NodeSeq = f(a)
-  }
-  //import play.api.libs.functional._
 }

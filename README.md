@@ -18,20 +18,19 @@ which is the default, then you can tail the mscrm-auth.log file to watch the inc
 data and results being requested and fetched. The debug log level is very verbose and
 not suitable for normal use.
 
-The library is designed for high performance data dumping. The command line
-options are a bit cumbersome so you can control the performance envelope more
-succinctly. Some command line options do not work yet, but I'll be updating
-them shortly.
+The library is designed to be a swiss army knife. It can be used for high performance data dumping, obtaining WSDL
+files from your org service or listing all the endpoints available to you in your region. The command line
+options are a bit cumbersome so you can succinctly control the performance envelope. Some command line options
+do not work yet, but I'll be updating them shortly.
 
 ##Capabilities
-
 metadata
 * Download an org's metadata describing the entities.
 
 discovery
 * Download your discovery WSDL.
 * List endpoints given your userid, password and region.
-* Find a given org data services SOAP URL given an username/password and region.
+* Find a given org data services SOAP URL given an username/password and web app URL.
 
 auth
 * Run a whoami to confirm your ability to login.
@@ -51,4 +50,3 @@ other
 
 Many thanks to contributors, a particular person in general recently who remains anonymous
 but was instrumental in pushing this application forward.
-

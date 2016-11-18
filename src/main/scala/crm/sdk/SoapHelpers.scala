@@ -282,171 +282,15 @@ ${raw.getResponseBody}
    * Augment the values array with any missing schema attributes.
    * Missing values will have a value of `MissingServerValue`
    */
-  def augment(values: Map[String, ServerValue], adds: Set[String], schema: sdk.metadata.EntityDescription) = {
+  def augment(values: Map[String, ServerValue], adds: Set[String], schema: metadata.EntityDescription) = {
     val hasKeys = values.keySet
     val allKeysToAdd = adds intersect schema.retrievableAttributes.map(_.logicalName).toSet
     val missing = allKeysToAdd -- hasKeys
     values ++ missing.map(_ -> UnsetServerValue)
   }
-
 }
 
 object SoapHelpers extends SoapHelpers
-
-import com.ning.http.client.Response
-import com.lucidchart.open.xtract._
-import com.lucidchart.open.xtract.{ XmlReader, _ }
-
-sealed abstract class ResponseError(raw: Response) {
-  def body: String = raw.getResponseBody
-  def logMsg = {
-    import scala.collection.JavaConverters._
-    val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
-    s"""Error during processing. Providing headers and response.
-Headers:
-$headers    
-ResponseBody:
-${raw.getResponseBody}
-"""
-  }
-
-  def log(logger: Logger): Unit
-}
-
-/** The response status code was unexpected, the request was probably ill-formed. */
-case class UnexpectedStatus(raw: Response, code: Int, msg: Option[String] = None) extends ResponseError(raw) {
-  def log(logger: Logger) = {
-    logger.error(s"Unexpected status: $code")
-    msg.foreach(logger.error(_))
-    logger.error(logMsg)
-  }
-}
-
-/** There was an unknown error. */
-case class UnknonwnResponseError(raw: Response, msg: String, ex: Option[Throwable] = None) extends ResponseError(raw) {
-  def log(logger: Logger) = {
-    logger.error(s"Unknown error: $msg")
-    ex.foreach(logger.error(_)("Exception thrown."))
-    logger.error(logMsg)
-  }
-}
-
-/** There was en error parsing the XML response. */
-case class XmlParseError[T](raw: Response, parseError: ParseResult[T], msg: Option[String] = None) extends ResponseError(raw) {
-  def log(logger: Logger) = {
-    logger.error(s"Parse error: $parseError")
-    logger.error(logMsg)
-  }
-}
-
-/** Error on the server related to the request. Request was well formed. */
-case class CrmError(raw: Response, fault: Fault, msg: Option[String]) extends ResponseError(raw) {
-  def log(logger: Logger) = {
-    logger.error(s"CRM Server error" + fault.message)
-    logger.error(s"Additional error info: " + msg.map(": " + _).getOrElse(""))
-    logger.error(logMsg)
-  }
-}
-
-/**
- * Exception that captures the response code and the response object.
- * Having the response and response body may allow you to diagnose the bad response
- * faster and easier.
- */
-case class ApiHttpError(code: Int, response: com.ning.http.client.Response)
-  extends Exception("Unexpected response status: %d".format(code))
-
-sealed trait ResponseBody
-
-case class Fault(
-  errorCode: Int = -1,
-  message: String = "A fault occurred.") extends ResponseBody
-
-case class PagingInfo(count: Int = 0, page: Int = 1, cookie: Option[String] = None,
-  returnTotalRecordCount: Boolean = false)
-object EmptyPagingInfo extends PagingInfo()
-sealed trait ColumnSet
-case class AllColumns() extends ColumnSet
-case class Columns(names: Seq[String]) extends ColumnSet
-
-object ColumnSet {
-  def apply(cname: String) = Columns(Seq(cname))
-  def apply(cnames: String*) = Columns(cnames)
-  val all = AllColumns()
-}
-
-sealed trait ExprOperator
-case object Equal extends ExprOperator
-case object In extends ExprOperator
-case object NotNull extends ExprOperator
-case object LastXDays extends ExprOperator
-case object Like extends ExprOperator
-
-case class ConditionExpression[T](attribute: String, op: ExprOperator, values: Seq[T])
-
-sealed trait Query
-
-case class QueryExpression(entityName: String, columns: ColumnSet = AllColumns(),
-  pageInfo: PagingInfo = PagingInfo(), lock: Boolean = false) extends Query
-
-/**
- * Expression with a fully formed fetch XML fragment. The fragment
- *  is altered with paging information and other enhancements as
- *  needed when the fetch xml query is issued. The element `fetch`
- *  should be the toplevel element. This class is really a "tag'
- *  on an XML Element.
- */
-case class FetchExpression(xml: scala.xml.Elem, pageInfo: PagingInfo = PagingInfo()) extends Query
-
-object FetchExpression {
-  def fromXML(xml: String, pagingInfo: PagingInfo = PagingInfo()) =
-    FetchExpression(scala.xml.XML.loadString(xml), pagingInfo)
-}
-
-case class Endpoint(name: String, url: String)
-
-case class OrganizationDetail(friendlyName: String,
-  guid: String,
-  version: String,
-  state: String,
-  uniqueName: String,
-  urlName: String,
-  endpoints: Seq[Endpoint] = Nil)
-
-/**
- * Value returned from the server. A value from the
- *  CRM may have multiple components to it.
- */
-trait ServerValue {
-  /** Raw server representation. */
-  def repr: scala.xml.NodeSeq
-  /**
-   * String representation extracted from the raw server representation.
-   *  This value does not reflect type information.
-   */
-  def text: String
-}
-
-/** A value that was not provided by the server but still may be processed. */
-object UnsetServerValue extends TypedServerValue("", <missing_></missing_>, "")
-
-/** A value from the server. It holds raw server data that can be re-interpreted if desired. */
-case class TypedServerValue(text: String, repr: xml.NodeSeq, t: String) extends ServerValue
-
-/** A value from the server that represets an EntityReference. */
-case class EntityReferenceServerValue(text: String, repr: xml.NodeSeq, logicalName: String) extends ServerValue
-
-/** A value from an option set. Has <Value> as child. */
-case class OptionSetValue(text: String, repr: xml.NodeSeq) extends ServerValue
-
-/**
- * Typeclass to expand out a server value to kv map. One attribute could
- *  turn into multiple kv pairs depending on the type of server
- *  value.
- */
-trait ServerValueExpander[A <: ServerValue] {
-  def expand(attr: String, value: A): Map[String, String]
-}
 
 /** Set of expander implicits and an importable syntax. */
 object expanders {
@@ -473,36 +317,18 @@ object expanders {
         expander.expand(attr, sv)
     }
   }
-  
+
   /** Expand any server value. */
   def expand(attr: String, sv: ServerValue): Map[String, String] = {
     import syntax._
-    sv match { 
+    sv match {
       case s: UnsetServerValue.type => s.expand(attr)
       case s: TypedServerValue => s.expand(attr)
       case s: EntityReferenceServerValue => s.expand(attr)
-      case s: OptionSetValue => s.expand(attr) 
+      case s: OptionSetValue => s.expand(attr)
     }
   }
 }
-
-/** Entity is a map of keys to values, pretty much. */
-case class Entity(attributes: Map[String, ServerValue] = collection.immutable.HashMap[String, ServerValue](),
-  formattedAttributes: Map[String, String] = collection.immutable.HashMap[String, String]())
-
-case class EntityCollectionResult(name: String,
-  entities: Seq[Entity] = Nil,
-  totalRecordCount: Option[Int],
-  limitExceeded: Boolean,
-  moreRecords: Boolean,
-  pagingCookie: Option[String]) extends ResponseBody
-
-case class ResponseHeader(action: String, relatedTo: String)
-
-/**
- * Response envelope.
- */
-case class Envelope(header: ResponseHeader, body: ResponseBody)
 
 /** Readers helpful in reading raw XML responses */
 object responseReaders {
@@ -524,7 +350,7 @@ object responseReaders {
   val typedValueReader = (
     nodeReader.map(_.text) and
     nodeReader and
-    iTypeReader(CrmAuth.NSSchemaInstance).default(""))(TypedServerValue.apply _)
+    iTypeReader(SoapNamespaces.NSSchemaInstance).default(""))(TypedServerValue.apply _)
 
   /** Read a value from the key-value pair. Read <value>. */
   val valueReader =
@@ -645,4 +471,3 @@ object responseReaders {
     tmp(Envelope.apply _)
   }
 }
-  

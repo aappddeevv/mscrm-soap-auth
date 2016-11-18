@@ -33,8 +33,20 @@ import CrmAuth._
  */
 trait StreamHelpers {
   import org.apache.commons.lang3.StringEscapeUtils._
+  import SoapNamespaces._
 
   private[this] lazy val logger = getLogger
+
+  /** Pipe strings to stdout. */
+  def stdout: Sink[Task, String] = pipe.lift((line: String) => Task.delay(println(line)))
+
+  /**
+   * Create a pipe that converts the first item through using `first` and outputs
+   * both the derived item and the first time then converts all remaining items
+   * using `rest`.
+   */
+  def deriveFromFirst[A](first: A => String, rest: A => String): Pipe[Task, A, String] =
+    s => s.pull[Task, String](h => h.receive1 { (a, h) => Pull.output1(first(a)) >> Pull.output1(rest(a)) >> h.map(rest).echo })
 
   /**
    * Report every `n` units based on a zipWithIndex-like input. Errors
@@ -160,7 +172,7 @@ trait StreamHelpers {
     initialState: PagingState,
     query: Option[PagingInfo] => R,
     httpRetrys: Int = 5,
-    pauseBetween: Int = 30)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R]) = {
+    pauseBetween: Int = 30)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NSMap) = {
 
     Stream.unfoldEval(initialState) { t =>
       if (!t._2) Task.now(None)
@@ -205,7 +217,7 @@ trait StreamHelpers {
     query: Option[PagingInfo] => R,
     httpRetrys: Int = 5,
     pauseBetween: Int = 30)(
-      implicit strategy: Strategy, scheduler: Scheduler, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R]) = {
+      implicit strategy: Strategy, scheduler: Scheduler, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NSMap) = {
 
     Stream.eval(fs2.async.signalOf[Task, CrmAuthenticationHeader](initialAuth)).flatMap { authTokenSignal =>
       auths(getOneAuth, authRenewalInMin).evalMap(newToken => authTokenSignal.set(newToken)).drain mergeHaltBoth
@@ -230,7 +242,7 @@ trait StreamHelpers {
     authTokenSignal: Signal[Task, CrmAuthenticationHeader],
     query: (I, Option[PagingInfo]) => R,
     httpRetrys: Int = 5,
-    pauseBetween: Int = 30)(input: I)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R]) = {
+    pauseBetween: Int = 30)(input: I)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NSMap) = {
     val initialState: (Option[PagingInfo], Boolean) = (Some(EmptyPagingInfo), true)
     Stream.unfoldEval(initialState) { t =>
       if (!t._2) Task.now(None)
