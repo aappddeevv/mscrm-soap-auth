@@ -21,12 +21,12 @@ import java.io.{ File => JFile }
 import fs2._
 import scala.concurrent.ExecutionContext
 import sdk.CrmAuth._
-import sdk.SoapHelpers._
-import sdk.StreamHelpers._
+import sdk.httphelpers._
+import sdk.streamhelpers._
 import scala.util.matching._
-import sdk.SoapNamespaces.implicits._
-import sdk.crmwriters._
-import sdk.responseReaders._
+import sdk.soapnamespaces.implicits._
+import sdk.messages.soaprequestwriters._
+import sdk.soapreaders._
 import sdk.metadata.readers._
 import sdk._
 
@@ -51,13 +51,13 @@ object Discovery {
         val output = discoveryAuth(Http, config.username, config.password, config.region).
           flatMap { discoveryAuth =>
             discoveryAuth match {
-              case Xor.Right(auth) => orgServicesUrl(Http, auth, config.url)
-              case Xor.Left(err) => Future.successful(Xor.left(s"Error: $err"))
+              case Right(auth) => orgServicesUrl(Http, auth, config.url)
+              case Left(err) => Future.successful(Left(s"Error: $err"))
             }
           }.andThen {
             case Success(result) => result match {
-              case Xor.Right(url) => println(s"Organization services URL: $url")
-              case Xor.Left(err) => println(s"Error: $err")
+              case Right(url) => println(s"Organization services URL: $url")
+              case Left(err) => println(s"Error: $err")
             }
             case Failure(ex) => println(s"Failed: $ex")
           }
@@ -140,26 +140,26 @@ object Discovery {
             }.mkString
         }
 
-        import responseReaders._
+        import soapreaders._
 
         // Endpoints come from the discovery URL locaton, not the actual org of course.
         val endpoints = discoveryAuth(Http, config.username, config.password, config.region).
           flatMap { discoveryAuth =>
             discoveryAuth match {
-              case Xor.Right(auth) =>
+              case Right(auth) =>
                 val orgs = requestEndpoints(Http, auth).map { presult =>
                   val sb = new StringBuilder()
                   presult match {
-                    case Xor.Right(orgs) =>
+                    case Right(orgs) =>
                       sb.append(s"# of endpoints: ${orgs.length}\n")
                       orgs.foreach(org => sb.append(output(org) + "\n"))
-                    case Xor.Left(error) =>
+                    case Left(error) =>
                       sb.append(s"Errors parsing results: $error\n")
                   }
                   sb.toString
                 }
                 orgs
-              case Xor.Left(err) => Future.successful(err)
+              case Left(err) => Future.successful(err)
             }
           }
         val printableOutput = Await.result(endpoints, config.timeout seconds)

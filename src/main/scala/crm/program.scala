@@ -21,12 +21,12 @@ import java.io.{ File => JFile }
 import fs2._
 import scala.concurrent.ExecutionContext
 import sdk.CrmAuth._
-import sdk.SoapHelpers._
-import sdk.StreamHelpers._
+import sdk.httphelpers._
+import sdk.streamhelpers._
 import scala.util.matching._
-import sdk.SoapNamespaces.implicits._
-import sdk.crmwriters._
-import sdk.responseReaders._
+import sdk.soapnamespaces.implicits._
+import sdk.messages.soaprequestwriters._
+import sdk.soapreaders._
 import sdk.metadata.readers._
 import sdk._
 
@@ -72,6 +72,7 @@ case class Config(
   keyfileEntity: String = "",
   dump: Dump = Dump(),
   entityCommand: String = "runCommands",
+  commandCallback: Map[String, String] => Either[String, Map[String, String]] = m => Right(Map()),
   commandFile: String = "commands.json",
   //connectionPoolIdelTimeoutInSec: Int = 5*60,
   concurrency: Int = 2,
@@ -228,12 +229,15 @@ object program {
     note("")
 
     cmd("entity").action((_, c) => c.copy(mode = "entity")).
-      text("Create or modify entities using a specialized json file.").
+      text("Create or modify entities using a json command file.").
       children(
-        urlOpt,
-        regionOpt,
+        opt[String]('r', "url").optional().valueName("<url>").text("Organization service url.").
+          action((x, c) => c.copy(url = x)),
+        opt[String]("region").optional().valueName("<region abbrev>").text("Organization region abbreviation e.g. NA.").
+          action((x, c) => c.copy(region = x)),
         opt[String]("command-file").valueName("<command file name>").optional().text("Run commands in he form of a json file with specialized syntax.")
           .action((x, c) => c.copy(entityCommand = "runCommands", commandFile = x)))
+    note("The results of the commands are output to the terminal and can be inspected.")
     note("")
 
     cmd("query").action((_, c) => c.copy(mode = "query")).
@@ -373,21 +377,20 @@ object program {
     println(s"Program runtime in seconds: ${elapsed.toMillis / 1000}")
   }
 
-  
   /**
    * Create a post request from a config object.
    */
   def createPost(config: Config): Req = CrmAuth.createPost(config.url)
 
-  /**
-   * Wrap a raw XML request (should be the full <body> element) with a header and issue the request.
-   * @return Request body as XML or exception thrown if the response is not OK.
-   */
-  def createPost(requestBody: xml.Elem, auth: CrmAuthenticationHeader, config: Config, url: Option[String] = None): Future[xml.Elem] = {
-    import Defaults._
-
-    val body = wrap(auth, requestBody)
-    val req = CrmAuth.createPost(url getOrElse config.url) << body.toString
-    Http(req OK as.xml.Elem)
-  }
+//  /**
+//   * Wrap a raw XML request (should be the full <body> element) with a header and issue the request.
+//   * @return Request body as XML or exception thrown if the response is not OK.
+//   */
+//  def createPost(requestBody: xml.Elem, auth: CrmAuthenticationHeader, config: Config, url: Option[String] = None): Future[xml.Elem] = {
+//    import Defaults._
+//
+//    val body = wrap(auth, requestBody)
+//    val req = CrmAuth.createPost(url getOrElse config.url) << body.toString
+//    Http(req OK as.xml.Elem)
+//  }
 }

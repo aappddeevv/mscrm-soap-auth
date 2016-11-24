@@ -1,4 +1,4 @@
-package crm
+package soapnamespaces
 
 import org.scalatest._
 

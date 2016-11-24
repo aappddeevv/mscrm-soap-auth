@@ -19,7 +19,8 @@ data and results being requested and fetched. The debug log level is very verbos
 not suitable for normal use.
 
 The library is designed to be a swiss army knife. It can be used for high performance data dumping, obtaining WSDL
-files from your org service or listing all the endpoints available to you in your region. The command line
+files from your org service or listing all the endpoints available to you in your region. It can also
+help with unit testing. The command line
 options are a bit cumbersome so you can succinctly control the performance envelope. Some command line options
 do not work yet, but I'll be updating them shortly.
 
@@ -44,9 +45,18 @@ types of CRM values are "expanded" automatically into multiple attributes. You c
 restrict the attributes downloaded through an attributes file (see metadata).
 * Create a spreadsheet friendly list of enities and attribute for customizing the download.
 
+entity
+* Run a json entity script that allows you to create and modify entities as well as
+run user-defined callbacks in between. This helps you programatically and consistently
+create and change data while performing checks on the data in between to validate that
+what you expected to happen, happened. The scripts are json oriented so you can directly
+type them in. This takes the place of Excel loading and manual data management for
+unit tests.
+
 other
 * Run --help to print show other capabilities.
 
 
 Many thanks to contributors, a particular person in general recently who remains anonymous
-but was instrumental in pushing this application forward.
+but was instrumental in pushing this application forward. This person found many
+errors and and built out some nascent capabilities.

@@ -21,12 +21,12 @@ import java.io.{ File => JFile }
 import fs2._
 import scala.concurrent.ExecutionContext
 import sdk.CrmAuth._
-import sdk.SoapHelpers._
-import sdk.StreamHelpers._
+import sdk.httphelpers._
+import sdk.streamhelpers._
 import scala.util.matching._
-import sdk.SoapNamespaces.implicits._
-import sdk.crmwriters._
-import sdk.responseReaders._
+import sdk.soapnamespaces.implicits._
+import sdk.messages.soaprequestwriters._
+import sdk.soapreaders._
 import sdk.metadata.readers._
 import sdk._
 
@@ -48,7 +48,7 @@ object Metadata {
         println("Obtaining metadata...")
         val metadata = sasync {
           val h = await(header)
-          val req = createPost(config) << RetrieveAllEntities(h, config.objects).toString
+          val req = createPost(config) << retrieveAllEntitiesTemplate(h, config.objects).toString
           val m = await(Http(req OKWithBody as.xml.Elem).unwrapEx)
           config.output.toFile.printWriter(true).map(_.write(m.toString))
         } recover {

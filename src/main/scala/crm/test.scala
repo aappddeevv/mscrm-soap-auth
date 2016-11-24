@@ -21,12 +21,12 @@ import java.io.{ File => JFile }
 import fs2._
 import scala.concurrent.ExecutionContext
 import sdk.CrmAuth._
-import sdk.SoapHelpers._
-import sdk.StreamHelpers._
+import sdk.httphelpers._
+import sdk.streamhelpers._
 import scala.util.matching._
-import sdk.SoapNamespaces.implicits._
-import sdk.crmwriters._
-import sdk.responseReaders._
+import sdk.soapnamespaces.implicits._
+import sdk.messages.soaprequestwriters._
+import sdk.soapreaders._
 import sdk.metadata.readers._
 import sdk._
 
@@ -49,8 +49,8 @@ object Test {
       andThen { result =>
         result match {
           case Success(xor) => xor match {
-            case Xor.Right(result) => println(s"Result: $result")
-            case Xor.Left(err) => println(s"Error: $err")
+            case Right(result) => println(s"Result: $result")
+            case Left(err) => println(s"Error: $err")
           }
           case Failure(ex) => println(s"Failed: $ex")
         }
@@ -70,25 +70,25 @@ object Test {
       andThen { result =>
         result match {
           case Success(xor) => xor match {
-            case Xor.Right(result) => println(s"Result: $result")
-            case Xor.Left(err) => println(s"Error: $err")
+            case Right(result) => println(s"Result: $result")
+            case Left(err) => println(s"Error: $err")
           }
           case Failure(ex) => println(s"Failed: $ex")
         }
       }
     val orgSvcAuth = Await.result(f2, config.timeout seconds).getOrElse(CrmAuthenticationHeader())
 
-    import responseReaders._
+    import soapreaders._
 
     println("Get endpoints")
     val f3 = requestEndpoints(Http, discAuth).
       andThen { result =>
         result match {
           case Success(xor) => xor match {
-            case Xor.Right(endpoints) => endpoints.foreach { ep =>
+            case Right(endpoints) => endpoints.foreach { ep =>
               println(s"Org: $ep")
             }
-            case Xor.Left(err) => println(s"Error: $err")
+            case Left(err) => println(s"Error: $err")
           }
           case Failure(ex) => println(s"Failed: $ex")
         }
@@ -96,13 +96,13 @@ object Test {
     Await.ready(f3, config.timeout seconds)
 
     println("Get entity metadata")
-    import crm.sdk.metadata._
-    import crm.sdk.metadata.readers._
+    import sdk.metadata._
+    import sdk.metadata.readers._
     val f4 = requestEntityMetadata(Http, orgSvcAuth).andThen { result =>
       result match {
         case Success(xor) => xor match {
-          case Xor.Right(result) => println(s"# entities: ${result.entities.length}")
-          case Xor.Left(err) => println(s"Error: $err")
+          case Right(result) => println(s"# entities: ${result.entities.length}")
+          case Left(err) => println(s"Error: $err")
         }
         case Failure(ex) => println(s"Failed: $ex")
       }
@@ -113,8 +113,8 @@ object Test {
     val f5 = orgServicesUrl(Http, discAuth, config.url).andThen { result =>
       result match {
         case Success(xor) => xor match {
-          case Xor.Right(result) => println(result)
-          case Xor.Left(err) => println(s"Error: $err")
+          case Right(result) => println(result)
+          case Left(err) => println(s"Error: $err")
         }
         case Failure(ex) => println(s"Failed $ex")
       }

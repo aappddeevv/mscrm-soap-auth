@@ -1,4 +1,4 @@
-package crm
+package soapnamespaces
 package sdk
 
 import org.scalatest._
@@ -13,7 +13,7 @@ class crmreaderspec extends FlatSpec with Matchers {
 
   import metadata._
   import metadata.readers._
-  import crm.sdk.responseReaders._
+  import soapnamespaces.sdk.soapreaders._
 
   def loadXml(f: String) = XML.load(getClass.getResource(f))
 

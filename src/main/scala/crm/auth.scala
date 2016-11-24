@@ -21,12 +21,12 @@ import java.io.{ File => JFile }
 import fs2._
 import scala.concurrent.ExecutionContext
 import sdk.CrmAuth._
-import sdk.SoapHelpers._
-import sdk.StreamHelpers._
+import sdk.httphelpers._
+import sdk.streamhelpers._
 import scala.util.matching._
-import sdk.SoapNamespaces.implicits._
-import sdk.crmwriters._
-import sdk.responseReaders._
+import sdk.soapnamespaces.implicits._
+import sdk.messages.soaprequestwriters._
+import sdk.soapreaders._
 import sdk.metadata.readers._
 import sdk._
 
@@ -60,22 +60,31 @@ object Auth {
   }
 
   /**
+   * Wrap a SOAP body in an envelope and add the authentication header. xmlns s is soap-envelope,
+   * xmlns a is addressing and u is wssecurty utils.
+   */
+  def wrap(auth: CrmAuthenticationHeader, soapBody: scala.xml.Elem*) = {
+    (<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
+     </s:Envelope>).copy(child = Seq(auth.Header) ++ soapBody)
+  }
+
+  val whoAmIBodyTemplate = <s:Body>
+                             <Execute xmlns="http://schemas.microsoft.com/xrm/2011/Contracts/Services">
+                               <request i:type="c:WhoAmIRequest" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://schemas.microsoft.com/crm/2011/Contracts">
+                                 <b:Parameters xmlns:d="http://schemas.datacontract.org/2004/07/System.Collections.Generic"/>
+                                 <b:RequestId i:nil="true"/>
+                                 <b:RequestName>WhoAmI</b:RequestName>
+                               </request>
+                             </Execute>
+                           </s:Body>
+
+  /**
    * Issues a WhoAmI message versus just returning a SOAP request body.
    */
   def CrmWhoAmI(auth: CrmAuthenticationHeader, config: Config): Future[String] = {
     import Defaults._
 
-    val xml3 = <s:Body>
-                 <Execute xmlns="http://schemas.microsoft.com/xrm/2011/Contracts/Services">
-                   <request i:type="c:WhoAmIRequest" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://schemas.microsoft.com/crm/2011/Contracts">
-                     <b:Parameters xmlns:d="http://schemas.datacontract.org/2004/07/System.Collections.Generic"/>
-                     <b:RequestId i:nil="true"/>
-                     <b:RequestName>WhoAmI</b:RequestName>
-                   </request>
-                 </Execute>
-               </s:Body>
-
-    val body = wrap(auth, xml3).toString
+    val body = wrap(auth, whoAmIBodyTemplate).toString
     val req = createPost(config) << body.toString
     Http(req OK as.xml.Elem) map { response =>
       val nodes = (response \\ "KeyValuePairOfstringanyType")

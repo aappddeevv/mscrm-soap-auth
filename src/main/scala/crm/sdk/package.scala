@@ -20,72 +20,115 @@ import scala.language.implicitConversions
 import com.ning.http.client.Response
 import com.lucidchart.open.xtract._
 import com.lucidchart.open.xtract.{ XmlReader, _ }
-import sdk.SoapNamespaces.NSMap
 
 package object sdk {
 
   /**
-   * Error objects representing different types of errors
-   * from HTTP responses.
+   * Convert a dispatch Response to a string so that the error
+   *  objects do not need to carry a Response object directly.
    */
-  sealed abstract class ResponseError(raw: Response) {
-    def body: String = raw.getResponseBody
-    def logMsg = {
-      import scala.collection.JavaConverters._
-      val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
-      s"""Error during processing. Providing headers and response.
+  def rtos(raw: Response) = {
+    import scala.collection.JavaConverters._
+    val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
+    s"""Error during processing. Providing headers and response.
 Headers:
 $headers    
 ResponseBody:
 ${raw.getResponseBody}
 """
-    }
-
-    def log(logger: Logger): Unit
-  }
-
-  /** The response status code was unexpected, the request was probably ill-formed. */
-  case class UnexpectedStatus(raw: Response, code: Int, msg: Option[String] = None) extends ResponseError(raw) {
-    def log(logger: Logger) = {
-      logger.error(s"Unexpected status: $code")
-      msg.foreach(logger.error(_))
-      logger.error(logMsg)
-    }
-  }
-
-  /** There was an unknown error. */
-  case class UnknonwnResponseError(raw: Response, msg: String, ex: Option[Throwable] = None) extends ResponseError(raw) {
-    def log(logger: Logger) = {
-      logger.error(s"Unknown error: $msg")
-      ex.foreach(logger.error(_)("Exception thrown."))
-      logger.error(logMsg)
-    }
-  }
-
-  /** There was en error parsing the response body, which is XML. */
-  case class XmlParseError[T](raw: Response, parseError: ParseResult[T], msg: Option[String] = None) extends ResponseError(raw) {
-    def log(logger: Logger) = {
-      logger.error(s"Parse error: $parseError")
-      logger.error(logMsg)
-    }
-  }
-
-  /** Error on the server related to the request. Request was well formed. */
-  case class CrmError(raw: Response, fault: Fault, msg: Option[String]) extends ResponseError(raw) {
-    def log(logger: Logger) = {
-      logger.error(s"CRM Server error" + fault.message)
-      logger.error(s"Additional error info: " + msg.map(": " + _).getOrElse(""))
-      logger.error(logMsg)
-    }
   }
 
   /**
-   * Exception that captures the response code and the response object.
-   * Having the response and response body may allow you to diagnose the bad response
-   * faster and easier.
+   * Error objects representing different types of errors
+   * from server responses. This itemizes all of the different
+   * types of errors that we may encounter when receiving a CRM SOAP message
+   * from a server.
+   *
+   * @body The string content of the error.
    */
-  case class ApiHttpError(code: Int, response: com.ning.http.client.Response)
-    extends Exception("Unexpected response status: %d".format(code))
+  sealed abstract class ResponseError {
+    def body: String
+  }
+
+  /** The response status code was unexpected, the original SOAP request was probably ill-formed. */
+  case class UnexpectedStatus(val body: String, code: Int, msg: Option[String] = None) extends ResponseError()
+
+  /** There was an unknown error. */
+  case class UnknonwnResponseError(val body: String, msg: String, ex: Option[Throwable] = None) extends ResponseError()
+
+  /**
+   * There was en error parsing the response body using the XML parser, which is XML.
+   *  This means that the XML was deserialized correctly but the SOAP XML reader could
+   *  not create a JVM object from the XML response. The XML was ill-formed.
+   */
+  case class XmlParseError[T](xml: scala.xml.Elem, parseError: ParseResult[T], msg: Option[String] = None) extends ResponseError() {
+    val body = xml.toString
+  }
+
+  /**
+   * Error on the server related to the request. CRM returns "Fault" payloads
+   *  when there is a CRM application level error.
+   */
+  case class CrmError(val body: String, fault: Fault, msg: Option[String]) extends ResponseError()
+
+  /**
+   * Typeclasses to dump out logging information using standard loggers
+   * {{{
+   * import errorloggers._
+   * implicit val logger = ...
+   * ...
+   * yourerror.log
+   * ...
+   * }}}
+   */
+  object errorloggers {
+
+    trait ErrorLogger[E <: ResponseError] {
+      def log_(e: E)(implicit logger: Logger): Unit
+    }
+
+    implicit val unexpectedStatusLogger = new ErrorLogger[UnexpectedStatus] {
+      def log_(e: UnexpectedStatus)(implicit logger: Logger) = {
+        logger.error(s"Unexpected status: ${e.code}")
+        e.msg.foreach(logger.error(_))
+        logger.error(e.body)
+      }
+    }
+
+    implicit val unknonwnResponseErrorLogger = new ErrorLogger[UnknonwnResponseError] {
+      def log_(e: UnknonwnResponseError)(implicit logger: Logger) = {
+        logger.error(s"Unknown error: ${e.msg}")
+        e.ex.foreach(logger.error(_)("Exception thrown."))
+        logger.error(e.body)
+      }
+    }
+
+    implicit val xmlParseErrorLogger = new ErrorLogger[XmlParseError[_]] {
+      def log_(e: XmlParseError[_])(implicit logger: Logger) = {
+        logger.error(s"Parse error while parsing XML using reader: ${e.parseError}")
+        logger.error(e.body)
+      }
+    }
+
+    implicit val crmErrorLogger = new ErrorLogger[CrmError] {
+      def log_(e: CrmError)(implicit logger: Logger) = {
+        logger.error(s"CRM Server error" + e.fault.message)
+        e.msg.foreach(m => logger.error(s"Additional error info: $m"))
+        logger.error(e.body)
+      }
+    }
+
+    implicit class ErrorLoggerSyntax(e: ResponseError) {
+      def log(implicit logger: Logger) = {
+        e match {
+          case x: UnexpectedStatus => unexpectedStatusLogger.log_(x)
+          case x: XmlParseError[_] => xmlParseErrorLogger.log_(x)
+          case x: CrmError => crmErrorLogger.log_(x)
+          case x: UnknonwnResponseError => unknonwnResponseErrorLogger.log_(x)
+        }
+      }
+    }
+  }
 
   /**
    * A response body from CRM SOAP has only a few type of possibilities.
@@ -121,6 +164,9 @@ ${raw.getResponseBody}
 
   case class ConditionExpression[T](attribute: String, op: ExprOperator, values: Seq[T])
 
+  /**
+   * Ask CRM for one or more entities.
+   */
   sealed trait Query
 
   case class QueryExpression(entityName: String, columns: ColumnSet = AllColumns,
@@ -204,50 +250,15 @@ ${raw.getResponseBody}
 
   case class ResponseHeader(action: String, relatedTo: String)
 
+  /** Result of an execute request which is generally key-value pairs. */
+  case class ExecuteResult(name: String, results: Map[String, Any]) extends ResponseBody
+
   /**
-   * Response envelope. 
-   * TODO: Change name so its obvious its a response vs request enveolpe?
+   * SOAP response envelope.
+   *
+   * TODO: Change name so its obvious its a response vs request envelope?
    */
   case class Envelope(header: ResponseHeader, body: ResponseBody)
-
-  /**
-   *  General purpose XML writer typeclass. Namespaces are handled
-   *  via implicits so you can setup a set of namespace abbrevations
-   *  for your application.
-   */
-  trait CrmXmlWriter[-A] {
-
-    def write(a: A)(implicit ns: NSMap): xml.NodeSeq
-
-    def transform(transformer: xml.NodeSeq => xml.NodeSeq)(implicit ns: NSMap) = CrmXmlWriter[A] { a =>
-      transformer(this.write(a)(ns))
-    }
-
-    def transform(transformer: CrmXmlWriter[xml.NodeSeq])(implicit ns: NSMap) = CrmXmlWriter[A] { a =>
-      transformer.write(this.write(a)(ns))(ns)
-    }
-  }
-
-  object CrmXmlWriter {
-
-    /**
-     * Get a writer without having to use the implicitly syntax.
-     */
-    def of[A](implicit r: CrmXmlWriter[A], ns: NSMap): CrmXmlWriter[A] = r
-
-    /** Create a write using apply syntax. */
-    def apply[A](f: A => xml.NodeSeq): CrmXmlWriter[A] = new CrmXmlWriter[A] {
-      def write(a: A)(implicit ns: NSMap): xml.NodeSeq = f(a)
-    }
-
-    /**
-     * Allows you to write `yourobject.write`.
-     */
-    implicit class RichCrmXmlWriter[A](a: A) {
-      def write(implicit writer: CrmXmlWriter[A], ns: NSMap) = writer.write(a)(ns)
-    }
-
-  }
 
   /**
    * Authentication information for creating security headers. The URL

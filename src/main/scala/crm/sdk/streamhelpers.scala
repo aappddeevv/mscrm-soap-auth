@@ -26,15 +26,18 @@ import scala.concurrent.duration._
 import fs2.async.immutable.Signal
 import org.log4s._
 import CrmAuth._
+import sdk.messages.soaprequestwriters._
+import sdk.messages._
 
 /**
  * Functions that compose streams of values from the underlying
  * CRM server requests.
  */
-trait StreamHelpers {
+trait streamhelpers {
   import org.apache.commons.lang3.StringEscapeUtils._
-  import SoapNamespaces._
-
+  import soapnamespaces._
+  import sdk.messages.soaprequestwriters._
+  
   private[this] lazy val logger = getLogger
 
   /** Pipe strings to stdout. */
@@ -172,7 +175,7 @@ trait StreamHelpers {
     initialState: PagingState,
     query: Option[PagingInfo] => R,
     httpRetrys: Int = 5,
-    pauseBetween: Int = 30)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NSMap) = {
+    pauseBetween: Int = 30)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NamespaceLookup) = {
 
     Stream.unfoldEval(initialState) { t =>
       if (!t._2) Task.now(None)
@@ -183,8 +186,8 @@ trait StreamHelpers {
         authTokenSignal.get.flatMap { auth =>
           getMultipleRequestPage(http, xml, auth, t._1, retrys = httpRetrys, pauseInSeconds = pauseBetween).map {
             _ match {
-              case Xor.Right((e, pagingOpt, more)) => Some((e, (pagingOpt, more)))
-              case Xor.Left(t) => throw t
+              case Right((e, pagingOpt, more)) => Some((e, (pagingOpt, more)))
+              case Left(t) => throw t
               case _ => None
             }
           }
@@ -217,7 +220,7 @@ trait StreamHelpers {
     query: Option[PagingInfo] => R,
     httpRetrys: Int = 5,
     pauseBetween: Int = 30)(
-      implicit strategy: Strategy, scheduler: Scheduler, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NSMap) = {
+      implicit strategy: Strategy, scheduler: Scheduler, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NamespaceLookup) = {
 
     Stream.eval(fs2.async.signalOf[Task, CrmAuthenticationHeader](initialAuth)).flatMap { authTokenSignal =>
       auths(getOneAuth, authRenewalInMin).evalMap(newToken => authTokenSignal.set(newToken)).drain mergeHaltBoth
@@ -242,7 +245,7 @@ trait StreamHelpers {
     authTokenSignal: Signal[Task, CrmAuthenticationHeader],
     query: (I, Option[PagingInfo]) => R,
     httpRetrys: Int = 5,
-    pauseBetween: Int = 30)(input: I)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NSMap) = {
+    pauseBetween: Int = 30)(input: I)(implicit strategy: Strategy, ec: ExecutionContext, reader: XmlReader[T], writer: CrmXmlWriter[R], ns: NamespaceLookup) = {
     val initialState: (Option[PagingInfo], Boolean) = (Some(EmptyPagingInfo), true)
     Stream.unfoldEval(initialState) { t =>
       if (!t._2) Task.now(None)
@@ -253,8 +256,8 @@ trait StreamHelpers {
         authTokenSignal.get.flatMap { auth =>
           getMultipleRequestPage(http, xml, auth, t._1, retrys = httpRetrys, pauseInSeconds = pauseBetween).map {
             _ match {
-              case Xor.Right((e, pagingOpt, more)) => Some((e, (pagingOpt, more)))
-              case Xor.Left(t) => throw t
+              case Right((e, pagingOpt, more)) => Some((e, (pagingOpt, more)))
+              case Left(t) => throw t
               case _ => None
             }
           }
@@ -265,4 +268,4 @@ trait StreamHelpers {
 
 }
 
-object StreamHelpers extends StreamHelpers
+object streamhelpers extends streamhelpers

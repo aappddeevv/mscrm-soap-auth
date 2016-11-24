@@ -20,9 +20,28 @@ import better.files._
 import scala.util.matching.Regex
 import org.log4s._
 
+/** 
+ *  Metadata objects retrieveable from the CRM server.
+ */
 package object metadata {
 
   import collection._
+
+  /** Required level in attribute metadata. */
+  sealed trait RequiredLevel
+  /** No requirement. */
+  case object NoRequirement extends RequiredLevel
+  /** System required */
+  case object SystemRequired extends RequiredLevel
+  /** Application required. */
+  case object ApplicationRequired extends RequiredLevel
+
+  /** Convert parsed string to RequiredLevel. */
+  def toRequiredLevel(n: String) = n match {
+    case "None" => NoRequirement
+    case "SystemRequired" => SystemRequired
+    case "ApplicationRequired" => ApplicationRequired
+  }
 
   /**
    * Attribute metadata.
@@ -43,7 +62,51 @@ package object metadata {
   case class BasicAttribute(attributeType: String,
     schemaName: String,
     logicalName: String,
-    isValidForRead: Boolean, // can be read in a retrieve
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String) extends Attribute
+
+  case class DateTimeAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String) extends Attribute
+
+  case class MoneyAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String) extends Attribute
+
+  case class BooleanAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String) extends Attribute
+
+  case class IntegerAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
     isPrimaryId: Boolean,
     isLogical: Boolean, // whether stored in a different table
     attributeOf: Option[String] = None,
@@ -54,7 +117,7 @@ package object metadata {
   case class DoubleAttribute(attributeType: String,
     schemaName: String,
     logicalName: String,
-    isValidForRead: Boolean, // can be read in a retrieve
+    isValidForRead: Boolean,
     isPrimaryId: Boolean,
     isLogical: Boolean, // whether stored in a different table
     attributeOf: Option[String] = None,
@@ -67,7 +130,7 @@ package object metadata {
   case class StringAttribute(attributeType: String,
     schemaName: String,
     logicalName: String,
-    isValidForRead: Boolean, // can be read in a retrieve
+    isValidForRead: Boolean,
     isPrimaryId: Boolean,
     isLogical: Boolean, // whether stored in a different table
     attributeOf: Option[String] = None,
@@ -78,10 +141,22 @@ package object metadata {
     maxLength: Int,
     format: Option[String]) extends Attribute
 
+  case class EntityNameAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
+    format: Option[String]) extends Attribute
+
   case class LookupAttribute(attributeType: String,
     schemaName: String,
     logicalName: String,
-    isValidForRead: Boolean, // can be read in a retrieve
+    isValidForRead: Boolean,
     isPrimaryId: Boolean,
     isLogical: Boolean, // whether stored in a different table
     attributeOf: Option[String] = None,
@@ -93,7 +168,7 @@ package object metadata {
   case class PicklistAttribute(attributeType: String,
     schemaName: String,
     logicalName: String,
-    isValidForRead: Boolean, // can be read in a retrieve
+    isValidForRead: Boolean,
     isPrimaryId: Boolean,
     isLogical: Boolean, // whether stored in a different table
     attributeOf: Option[String] = None,

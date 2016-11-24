@@ -18,7 +18,7 @@
 		</encoder>
 	</appender>
 
-	<logger name="crm" level="info" />
+	<logger name="crm" level="debug" />
     
 	<root level="error">
 		<appender-ref ref="FILE" />

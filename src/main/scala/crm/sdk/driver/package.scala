@@ -227,7 +227,7 @@ trait BasicProfile { self: BasicProfile =>
   trait API {
     type Org = Backend#Org
     val Org = backend.Org
-    type CrmException = crm.sdk.driver.CrmException
+    type CrmException = driver.CrmException
     implicit val crmProfile: self.type = self
   }
 

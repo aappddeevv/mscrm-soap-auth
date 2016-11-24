@@ -8,6 +8,7 @@ import java.util.Date;
 import cats._
 import cats.data._
 import cats.syntax._
+import cats.implicits._
 import org.log4s._
 import better.files._
 import fs2._
@@ -18,7 +19,7 @@ import com.lucidchart.open.xtract._
 import play.api.libs.functional.syntax._
 import scala.language.implicitConversions
 
-trait SoapHelpers {
+trait httphelpers {
   private[this] lazy val logger = getLogger
 
   /**
@@ -61,15 +62,6 @@ trait SoapHelpers {
    */
   def catchTimeout(name: String) = handling(classOf[java.util.concurrent.TimeoutException]) by { t =>
     println(s"Timeout waiting for $name. Check your timeout arguments.")
-  }
-
-  /**
-   * Wrap a SOAP body in an envelope and add the authentication header. xmlns s is soap-envelope,
-   * xmlns a is addressing and u is wssecurty utils.
-   */
-  def wrap(auth: CrmAuthenticationHeader, soapBody: scala.xml.Elem*) = {
-    (<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
-     </s:Envelope>).copy(child = Seq(auth.Header) ++ soapBody)
   }
 
   /**
@@ -163,6 +155,7 @@ trait SoapHelpers {
       (req.toRequest, new OkWithBodyHandler(f))
   }
 
+  /** Automatically unwrap an ExecutionException to get to the inner exception. */
   implicit class EnhancedFuture[A](fut: scala.concurrent.Future[A]) {
     /**
      * Unwrap an exception in the Future if its an ExecutionException,
@@ -214,49 +207,61 @@ ${raw.getResponseBody}
   }
 
   /**
-   * Parse XML from a raw response using an implicit reader. Implements app standard
-   * logging and converts errors to an algebaric data type.
+   * Exception that captures the response code and the response object.
+   * Having the response and response body may allow you to diagnose the bad response
+   * faster and easier.
    */
-  def processXml[T](response: Response)(implicit reader: XmlReader[T], logger: Logger): ResponseError Xor T = {
-    try {
-      val body = scala.xml.XML.loadString(response.getResponseBody)
-      reader.read(body) match {
-        case ParseSuccess(a) => Xor.right(a)
-        case PartialParseSuccess(a, errs) =>
-          logger.debug("There were non-fatal parsing issues: " + errs)
-          Xor.right(a)
-        case x@ParseFailure(errs) =>
-          logger.error("There are XML parsing issues: " + errs)
-          logger.error(s"XML to parse:\n$body")
-          Xor.left(XmlParseError(response, x, None))
-      }
-    } catch {
-      case scala.util.control.NonFatal(e) =>
-        logger.error(e)("Unknown non fatal error occurred")
-        Xor.left(UnknonwnResponseError(response, "Unknown error occurred", ex = Some(e)))
+  case class ApiHttpError(code: Int, response: com.ning.http.client.Response)
+    extends Exception("Unexpected response status: %d".format(code))
+
+  /** Convert a dispatch Response to XML. */
+  def responseToXml(response: Response): Either[ResponseError, xml.Elem] = {
+    val body = response.getResponseBody
+    Either.catchNonFatal { scala.xml.XML.loadString(body) }.leftMap(t => UnknonwnResponseError(rtos(response), "Unable to deserialize XML payload.", Some(t)))
+  }
+
+  /**
+   * Parse XML from a raw response using an implicit reader. Implements app standard
+   * logging and converts errors to an algebraic data type.
+   * Parsing errors are non-fatal errors are captured and converted to a Left.
+   * Because `T` is generic, this function does not translate SOAP Fault's
+   * into Lefts.
+   *
+   * @param T The expected return type.
+   * @param reader A reader of the XML payload that returns type T.
+   * @param logger Logger instance.
+   * @return ResponseError object or a value of type T
+   */
+  def processXml[T](body: xml.Elem)(implicit reader: XmlReader[T], logger: Logger): Either[ResponseError, T] = {
+    reader.read(body) match {
+      case ParseSuccess(a) => Right(a)
+      case PartialParseSuccess(a, errs) =>
+        logger.debug("There were non-fatal parsing issues: " + errs)
+        Right(a)
+      case x@ParseFailure(errs) =>
+        logger.error("There are XML parsing issues: " + errs)
+        logger.error(s"XML to parse:\n$body")
+        Left(XmlParseError(body, x, None))
     }
   }
 
   /**
-   * Parse the body as XML using the implicit XmlReader. You could map into the result
-   * of course. Parsing occurs on the response processing thread. If you want to control
+   * An AsyncCompletionHandler specific to AHC that parses the body as XML using
+   * the implicit XmlReader. Parsing occurs on the response processing thread. If you want to control
    * the execution context, map into the future that contains the raw response.
-   * This handler also automatically logs parsing issues using at the warning level.
-   *                              a
-   *
-   * TODO: Make logger implicit.
    */
-  class OkThenParse[T](implicit reader: XmlReader[T], logger: Logger) extends AsyncCompletionHandler[ResponseError Xor T] {
+  class OkThenParse[T](implicit reader: XmlReader[T], logger: Logger) extends AsyncCompletionHandler[Either[ResponseError, T]] {
     def onCompleted(response: Response) = {
       logger.debug(s"Response: ${show(response)}")
       if (response.getStatusCode / 100 == 2) {
-        processXml(response)(reader, logger)
+        responseToXml(response).flatMap(processXml(_)(reader, logger))
       } else {
-        Xor.left(UnexpectedStatus(response, response.getStatusCode, None))
+        Left(UnexpectedStatus(rtos(response), response.getStatusCode, None))
       }
     }
   }
 
+  /** Allows OKThenParse to be used in the HttpExecutor fluently. */
   implicit class MyParsingRequestHandlerTupleBuilder(req: Req) {
     def OKThenParse[T](implicit reader: XmlReader[T], logger: Logger) =
       (req.toRequest, new OkThenParse()(reader, logger))
@@ -269,12 +274,12 @@ ${raw.getResponseBody}
       Task.fromFuture(http(req))
     }
 
-  /** Auto convert parse result to an Xor. */
-  implicit class ParseResultToXor[A](p: ParseResult[A]) {
-    def toXor = p match {
-      case ParseSuccess(v) => Xor.right(v)
-      case PartialParseSuccess(v, msgs) => Xor.right(v)
-      case ParseFailure(errs) => Xor.left(errs)
+  /** Auto convert parse result to an Either. */
+  implicit class ParseResultToEither[A](p: ParseResult[A]) {
+    def toEither = p match {
+      case ParseSuccess(v) => Right(v)
+      case PartialParseSuccess(v, msgs) => Right(v)
+      case ParseFailure(errs) => Left(errs)
     }
   }
 
@@ -290,7 +295,7 @@ ${raw.getResponseBody}
   }
 }
 
-object SoapHelpers extends SoapHelpers
+object httphelpers extends httphelpers
 
 /** Set of expander implicits and an importable syntax. */
 object expanders {
@@ -327,147 +332,5 @@ object expanders {
       case s: EntityReferenceServerValue => s.expand(attr)
       case s: OptionSetValue => s.expand(attr)
     }
-  }
-}
-
-/** Readers helpful in reading raw XML responses */
-object responseReaders {
-
-  import crm.sdk.metadata.readers.iTypeReader
-
-  /** Read <value> */
-  val entityReferenceValueReader = (
-    (__ \ "Id").read[String] and
-    nodeReader and
-    (__ \ "LogicalName").read[String])(EntityReferenceServerValue.apply _)
-
-  /** Read <value> */
-  val optionSetValueReader = (
-    (__ \ "Value").read[String] and
-    nodeReader)(OptionSetValue.apply _)
-
-  /** Read <value> */
-  val typedValueReader = (
-    nodeReader.map(_.text) and
-    nodeReader and
-    iTypeReader(SoapNamespaces.NSSchemaInstance).default(""))(TypedServerValue.apply _)
-
-  /** Read a value from the key-value pair. Read <value>. */
-  val valueReader =
-    optionSetValueReader orElse
-      entityReferenceValueReader orElse
-      typedValueReader
-
-  /**
-   * Impossibly hard due to awful SOAP encodings.
-   *  Assumes that the type in the value element has a prefix and requires
-   *  a very expensive attribute search :-)
-   */
-  val obtuseKeyValueReader: XmlReader[(String, ServerValue)] =
-    XmlReader { xml =>
-      val k = (__ \ "key").read[String].read(xml)
-      val v = (__ \ "value").read(valueReader).read(xml)
-      val r = for {
-        kk <- k
-        vv <- v
-      } yield (kk, vv)
-      r
-    }
-
-  val stringStringReader: XmlReader[(String, String)] =
-    ((__ \ "key").read[String] and
-      (__ \ "value").read[String])((_, _))
-
-  /** Apply to the envelope */
-  val body: XmlReader[scala.xml.NodeSeq] =
-    (__ \ "Body").read
-
-  val faultPath = (__ \ "Fault")
-
-  val fault: XmlReader[scala.xml.NodeSeq] = faultPath.read
-
-  val retrieveMultipleResponse: XmlReader[xml.NodeSeq] =
-    (__ \ "RetrieveMultipleResponse").read
-
-  val retrieveMultipleResult: XmlReader[xml.NodeSeq] =
-    (__ \ "RetrieveMultipleResult").read
-
-  val organizationServiceFault: XmlReader[xml.NodeSeq] =
-    (__ \ "OrganizationServiceFault").read
-
-  /** Apply to the envelope. */
-  val header: XmlReader[xml.NodeSeq] = (__ \\ "Header").read
-
-  implicit val responseHeaderReader: XmlReader[ResponseHeader] =
-    header andThen (
-      (__ \\ "Action").read[String] and
-      (__ \\ "RelatesTo").read[String])(ResponseHeader.apply _)
-
-  implicit val entityReader: XmlReader[Entity] =
-    (
-      //XmlReader.pure(HashMap[String, ServerValue]()) and
-      (__ \ "Attributes").children.read(seq(obtuseKeyValueReader)).map { v =>
-        collection.immutable.HashMap[String, ServerValue]() ++ v
-      } and
-      (__ \ "FormattedValues" \\ "KeyValuePairOfstringstring").read(seq(stringStringReader)).map { v =>
-        collection.immutable.HashMap[String, String]() ++ v
-      })(Entity.apply _)
-
-  implicit val entityCollectionResultReader: XmlReader[EntityCollectionResult] =
-    ((__ \ "EntityName").read[String] and
-      (__ \ "Entities" \\ "Entity").read(strictReadSeq[Entity]).default(Nil) and
-      (__ \ "TotalRecordCount").read[Int].optional and
-      (__ \ "TotalRecordCountLimitExceeded").read[Boolean] and
-      (__ \ "MoreRecords").read[Boolean] and
-      (__ \ "PagingCookie").read[String].filter(!_.trim.isEmpty).optional)(EntityCollectionResult.apply _)
-
-  implicit val detail: XmlReader[xml.NodeSeq] = (__ \ "Detail").read
-
-  implicit val faultReader = (
-    (__ \ "ErrorCode").read[Int] and
-    (__ \ "Message").read[String])(Fault.apply _)
-
-  val reasonReader = (
-    XmlReader.pure(-1) and
-    (__ \\ "Reason").read[String])(Fault.apply _)
-
-  implicit val pagingCookieReader =
-    ((__ \\ "PagingCookie").read[String].filter(!_.trim.isEmpty).optional and
-      (__ \\ "MoreRecords").read[Boolean] and
-      (__ \\ "TotalRecordCount").read[Int])((_, _, _))
-
-  /** Read a key-value */
-  implicit val keyValuePairOfstringanyTypeReader =
-    ((__ \ "key").read[String] and
-      (__ \ "value" \ "Value").read[String])((_, _))
-
-  implicit val seqKVReader =
-    (__ \\ "KeyValuePairOfstringanyTypeReader").
-      read(seq(keyValuePairOfstringanyTypeReader))
-
-  implicit val readEndpoint: XmlReader[Endpoint] = (
-    (__ \ "key").read[String] and
-    (__ \ "value").read[String])(Endpoint.apply _)
-
-  implicit val readOrganizationDetail: XmlReader[OrganizationDetail] = (
-    (__ \ "FriendlyName").read[String] and
-    (__ \ "OrganizationId").read[String] and
-    (__ \ "OrganizationVersion").read[String] and
-    (__ \ "State").read[String] and
-    (__ \ "UniqueName").read[String] and
-    (__ \ "UrlName").read[String] and
-    (__ \ "Endpoints" \ "KeyValuePairOfEndpointTypestringztYlk6OT").read(seq[Endpoint]).default(Seq()))(OrganizationDetail.apply _)
-
-  implicit val readSeqOrganizationDetail: XmlReader[Seq[OrganizationDetail]] = (__ \\ "OrganizationDetail").read(seq[OrganizationDetail])
-
-  /**
-   * Reader that reads a Fault or the results of a RetrieveMultipleRequest.
-   */
-  val retrieveMultipleRequestReader = {
-    val tmp = (responseHeaderReader and
-      (body andThen (
-        (fault andThen ((detail andThen organizationServiceFault andThen faultReader) or reasonReader)) or
-        (retrieveMultipleResponse andThen retrieveMultipleResult andThen entityCollectionResultReader))))
-    tmp(Envelope.apply _)
   }
 }

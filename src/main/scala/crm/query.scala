@@ -21,19 +21,20 @@ import java.io.{ File => JFile }
 import fs2._
 import scala.concurrent.ExecutionContext
 import sdk.CrmAuth._
-import sdk.SoapHelpers._
-import sdk.StreamHelpers._
+import sdk.httphelpers._
+import sdk.streamhelpers._
 import scala.util.matching._
-import sdk.SoapNamespaces.implicits._
-import sdk.crmwriters._
-import sdk.responseReaders._
+import sdk.soapnamespaces.implicits._
+import sdk.messages._
+import sdk.messages.soaprequestwriters._
+import sdk.soapreaders._
 import sdk.metadata.readers._
 import sdk._
 import scala.xml._
-import crm.sdk.metadata._
-import crm.sdk.metadata.readers._
-import crm.sdk._
-import responseReaders._
+import sdk.metadata._
+import sdk.metadata.readers._
+import sdk._
+import soapreaders._
 import CrmXmlWriter._
 import fs2.async._
 import fs2.async.immutable._
@@ -88,10 +89,13 @@ object Query {
    *
    *  @param ensure List of attributes to ensure are present in the `Entity`.
    */
-  def fillInMissingAttributes(meta: EntityDescription, ensure: Set[String]): Pipe[Task, crm.sdk.Entity, crm.sdk.Entity] = pipe.lift { ent: crm.sdk.Entity =>
+  def fillInMissingAttributes(meta: EntityDescription, ensure: Set[String]): Pipe[Task, sdk.Entity, sdk.Entity] = pipe.lift { ent: sdk.Entity =>
     val merged = augment(ent.attributes, ensure, meta)
     ent.copy(attributes = merged)
   }
+
+  def query(entity: String, id: String)(pi: Option[PagingInfo]) =
+    QueryExpression(entity, ColumnSet(id), pageInfo = pi.getOrElse(EmptyPagingInfo))
 
   /**
    *  Create a QueryExpression.
@@ -146,7 +150,7 @@ object Query {
       attrs.toList.sorted
     }
 
-    val headerAndRows = s.through(StreamHelpers.deriveFromFirst(e => entityToColumnNames(e).mkString(",") + "\n", makeRow))
+    val headerAndRows = s.through(streamhelpers.deriveFromFirst(e => entityToColumnNames(e).mkString(",") + "\n", makeRow))
     headerAndRows
   }
 
@@ -180,7 +184,83 @@ object Query {
       map(_ => s"$entity: Completed dumping records.")
   }
 
+  /** Make a filename for the keys file from a filename prefix. */
   def mkKeysFileName(ename: String) = ename + ".keys"
+
+  /**
+   * Extract record count from an Entity Collection Result. Look for
+   *  the total record count or count any entitis found (backup).
+   */
+  def getEntityCollectionResultRecordCount: Pipe[Task, Envelope, Int] =
+    pipe.collect {
+      _ match {
+        case Envelope(_, EntityCollectionResult(_, entities, _, _, _, _)) => entities.length
+      }
+    }
+
+  /**
+   * Dump entity data using a page by page, sequential walk through.
+   *
+   *  TODO: Change this to use a feed of ids into the same approach
+   *  used in `dumpEntityUsingKeyfile` so that it runs fast by default.
+   */
+  def dumpEntityUsingPaging(http: HttpExecutor, orgAuth: CrmAuthenticationHeader,
+    entityDesc: EntityDescription, cols: Seq[String],
+    outputFile: String, header: Boolean = true,
+    initialState: PagingState,
+    authRenewalTimeInMin: Int,
+    config: Config)(implicit ec: ExecutionContext, strategy: Strategy, reader: XmlReader[Envelope], scheduler: Scheduler): Stream[Task, String] = {
+    val colSet = Columns(cols)
+
+    val qGenerator = query(entityDesc.logicalName, colSet, _: Option[PagingInfo])
+
+    dumpEntity(http, orgAuth,
+      entityDesc,
+      outputFile, header,
+      envelopesStream(http, orgAuth, orgAuthF(config), authRenewalTimeInMin, initialState,
+        qGenerator, config.httpRetrys, config.pauseBetweenRetriesInSeconds),
+      envelopesToStringRows(entityDesc, config))
+  }
+
+  /** Dump entity data using a parallel process based on a key file. */
+  def dumpEntityUsingKeyfile(http: HttpExecutor, orgAuth: CrmAuthenticationHeader,
+    entityDesc: EntityDescription, cols: Seq[String],
+    outputFile: String, header: Boolean = true, keyfile: String,
+    authRenewalTimeInMin: Int,
+    config: Config)(
+      implicit ec: ExecutionContext, strategy: Strategy, reader: XmlReader[Envelope], scheduler: Scheduler): Stream[Task, String] = {
+
+    println(s"Dump for ${entityDesc.logicalName} using key file $keyfile")
+    val colSet = Columns(cols)
+
+    val idStream =
+      readIds(keyfile).vectorChunkN(config.keyfileChunkFetchSize).through(Stream.emit)
+
+    def mkQuery(ids: Traversable[String], ps: Option[PagingInfo]) =
+      FetchExpression(fetchInIdList(entityDesc.logicalName,
+        entityDesc.primaryId, ids, cols), ps.getOrElse(PagingInfo()))
+
+    def toEnvStream(signal: Signal[Task, CrmAuthenticationHeader]) =
+      envelopesFromInput[Envelope, Traversable[String], FetchExpression](http, signal,
+        mkQuery _,
+        config.httpRetrys, config.pauseBetweenRetriesInSeconds) _
+
+    def estreams(signal: Signal[Task, CrmAuthenticationHeader]) =
+      idStream.flatMap(_.map(toEnvStream(signal)))
+
+    // Wrap up the streams of streams with a "renewing" auth
+    val outer =
+      Stream.eval(fs2.async.signalOf[Task, CrmAuthenticationHeader](orgAuth)).flatMap { authTokenSignal =>
+        auths(orgAuthF(config), authRenewalTimeInMin).evalMap(newToken => authTokenSignal.set(newToken))
+          .drain
+          .mergeHaltBoth(estreams(authTokenSignal))
+      }
+
+    val joined = fs2.concurrent.join[Task, Envelope](config.pconcurrency)(outer)
+
+    dumpEntity(http, orgAuth, entityDesc, outputFile, header, joined,
+      envelopesToStringRows(entityDesc, config))
+  }
 
   /**
    *
@@ -221,64 +301,6 @@ object Query {
         val authRenewalTimeInMin = (config.leaseTimeRenewalFraction * config.leaseTime).toInt
         val initialState = (Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = 0)), true)
 
-        /**
-         * Dump entity data using a page by page, sequential walk through.
-         *
-         *  TODO: Change this to use a feed of ids into the same approach
-         *  used in `dumpEntityUsingKeyfile` so that it runs fast by default.
-         */
-        def dumpEntityUsingPaging(http: HttpExecutor, orgAuth: CrmAuthenticationHeader,
-          entityDesc: EntityDescription, cols: Seq[String],
-          outputFile: String, header: Boolean = true): Stream[Task, String] = {
-          val colSet = Columns(cols)
-
-          val qGenerator = query(entityDesc.logicalName, colSet, _: Option[PagingInfo])
-
-          dumpEntity(http, orgAuth,
-            entityDesc,
-            outputFile, header,
-            envelopesStream(http, orgAuth, orgAuthF(config), authRenewalTimeInMin, initialState,
-              qGenerator, config.httpRetrys, config.pauseBetweenRetriesInSeconds),
-            envelopesToStringRows(entityDesc, config))
-        }
-
-        /** Dump entity data using a parallel process based on a key file. */
-        def dumpEntityUsingKeyfile(http: HttpExecutor, orgAuth: CrmAuthenticationHeader,
-          entityDesc: EntityDescription, cols: Seq[String],
-          outputFile: String, header: Boolean = true, keyfile: String): Stream[Task, String] = {
-
-          println(s"Dump for ${entityDesc.logicalName} using key file $keyfile")
-          val colSet = Columns(cols)
-
-          val idStream =
-            readIds(keyfile).vectorChunkN(config.keyfileChunkFetchSize).through(Stream.emit)
-
-          def mkQuery(ids: Traversable[String], ps: Option[PagingInfo]) =
-            FetchExpression(fetchInIdList(entityDesc.logicalName,
-              entityDesc.primaryId, ids, cols), ps.getOrElse(PagingInfo()))
-
-          def toEnvStream(signal: Signal[Task, CrmAuthenticationHeader]) =
-            envelopesFromInput[Envelope, Traversable[String], FetchExpression](http, signal,
-              mkQuery _,
-              config.httpRetrys, config.pauseBetweenRetriesInSeconds) _
-
-          def estreams(signal: Signal[Task, CrmAuthenticationHeader]) =
-            idStream.flatMap(_.map(toEnvStream(signal)))
-
-          // Wrap up the streams of streams with a "renewing" auth
-          val outer =
-            Stream.eval(fs2.async.signalOf[Task, CrmAuthenticationHeader](orgAuth)).flatMap { authTokenSignal =>
-              auths(orgAuthF(config), authRenewalTimeInMin).evalMap(newToken => authTokenSignal.set(newToken))
-                .drain
-                .mergeHaltBoth(estreams(authTokenSignal))
-            }
-
-          val joined = fs2.concurrent.join[Task, Envelope](config.pconcurrency)(outer)
-
-          dumpEntity(http, orgAuth, entityDesc, outputFile, header, joined,
-            envelopesToStringRows(entityDesc, config))
-        }
-
         // read attributes file...
         // ...        
 
@@ -287,7 +309,7 @@ object Query {
             val schemaTask = Task.fromFuture(entityMetadata(http, orgAuth, config.url))
             Stream.eval(schemaTask).flatMap { xor =>
               xor match {
-                case Xor.Right(schema) =>
+                case Right(schema) =>
                   // If only one entity was specified we can use just that
                   // and we need to look for specified attributes. If more than
                   // one entity to dump was specified, we are dumping everything.
@@ -316,9 +338,11 @@ object Query {
 
                     val str =
                       if (keyFileExists && !config.ignoreKeyFiles)
-                        dumpEntityUsingKeyfile(http, orgAuth, entityDesc, cols, outputFile, dump.header, keyFile)
+                        dumpEntityUsingKeyfile(http, orgAuth, entityDesc, cols, outputFile, dump.header, keyFile,
+                          authRenewalTimeInMin, config)
                       else
-                        dumpEntityUsingPaging(http, orgAuth, entityDesc, cols, outputFile, dump.header)
+                        dumpEntityUsingPaging(http, orgAuth, entityDesc, cols, outputFile, dump.header,
+                          initialState, authRenewalTimeInMin, config)
 
                     str.onError { t =>
                       logger.error(t)("Error processing")
@@ -326,7 +350,7 @@ object Query {
                     }
                   }
 
-                case Xor.Left(error) =>
+                case Left(error) =>
                   Stream.emit(Stream.emit(s"Error during start of processing: $error"))
               }
             }
@@ -366,20 +390,6 @@ object Query {
         implicit val reader = retrieveMultipleRequestReader
         implicit val sheduler = Scheduler.fromFixedDaemonPool(2, "auth-getter")
 
-        def query(entity: String, id: String)(pi: Option[PagingInfo]) =
-          QueryExpression(entity, ColumnSet(id), pageInfo = pi.getOrElse(EmptyPagingInfo))
-
-        /**
-         * Extract record count from an Entity Collection Result. Look for
-         *  the total record count or count any entitis found (backup).
-         */
-        def getEntityCollectionResultRecordCount: Pipe[Task, Envelope, Int] =
-          pipe.collect {
-            _ match {
-              case Envelope(_, EntityCollectionResult(_, entities, _, _, _, _)) => entities.length
-            }
-          }
-
         def orgAuthF = orgServicesAuthF(Http, config.username, config.password, config.url, config.region, config.leaseTime)
         val authRenewalTimeInMin = (config.leaseTimeRenewalFraction * config.leaseTime).toInt
         val initialState = (Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = 0)), true)
@@ -387,7 +397,7 @@ object Query {
         val output = orgAuthF.flatMap { orgAuth =>
           entityMetadata(Http, orgAuth, config.url).map {
             _ match {
-              case Xor.Right(schema) =>
+              case Right(schema) =>
                 //logger.info(s"schema: $schema")
                 println(s"Found ${schema.entities.size} entities to consider.")
                 val possibleFilters: Seq[String] = config.queryFilters ++
@@ -440,7 +450,7 @@ object Query {
                       "Error running count queries."
                   }
 
-              case Xor.Left(error) =>
+              case Left(error) =>
                 s"Error during processing: $error"
             }
           }
@@ -455,11 +465,6 @@ object Query {
         val cp = CreatePartitions(config.keyfileEntity, chunkSize = config.keyfileChunkSize,
           outputFilePrefix = config.keyfileEntity)
         println(s"Creating partition for ${cp.entity}")
-
-        import responseReaders._
-        import sdk.metadata.readers._
-        import crm.sdk._
-        import java.util.concurrent.Executors
 
         //val tpool = Executors.newWorkStealingPool(config.parallelism + 1)
         implicit val tpool = DaemonThreads(config.parallelism + 1)
@@ -486,7 +491,6 @@ object Query {
         def orgAuthF = orgServicesAuthF(Http, config.username, config.password, config.url, config.region, config.leaseTime)
         val authRenewalTimeInMin = (config.leaseTimeRenewalFraction * config.leaseTime).toInt
         val initialState = (Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = 0)), true)
-        import java.nio.file._
         val bits = List(StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
 
         // For the moment this is overkill, but we want to be able to parallelise this. */
@@ -495,7 +499,7 @@ object Query {
             val schemaTask = Task.fromFuture(entityMetadata(http, orgAuth, config.url))
             Stream.eval(schemaTask).flatMap { xor =>
               xor match {
-                case Xor.Right(schema) =>
+                case Right(schema) =>
                   println(s"Found ${schema.entities.size} entities to consider.")
                   val spec = entityAttributeSpec(Seq(cp.entity), schema)
                   val entityToProcess = schema.entities.filter(ent => spec.keySet.contains(ent.logicalName)).headOption
@@ -523,7 +527,7 @@ object Query {
                       Stream(s"Error processing $ename: ${e.getMessage}")
                     }
                   }
-                case Xor.Left(error) =>
+                case Left(error) =>
                   Stream.emit(Stream.emit(s"Error during start of processing: $error"))
               }
             }
@@ -545,9 +549,6 @@ object Query {
       case "createAttributeFile" =>
         println(s"Creating attribute file attributes.csv. Edit with a spreadsheet then use for downloading.")
 
-        import sdk.metadata._
-        import sdk.metadata.readers._
-        import java.util.concurrent.Executors
         val tpool = Executors.newWorkStealingPool(config.parallelism + 1)
         implicit val ec = scala.concurrent.ExecutionContext.fromExecutor(tpool)
 
@@ -556,7 +557,7 @@ object Query {
         val output = orgAuthF.flatMap { orgAuth =>
           entityMetadata(Http, orgAuth, config.url).map {
             _ match {
-              case Xor.Right(schema) =>
+              case Right(schema) =>
                 logger.debug(s"Using schema: $schema")
                 println(s"Found ${schema.entities.size} entities to consider.")
                 val f = "attributes.csv".toFile
@@ -572,7 +573,7 @@ object Query {
                 }
                 f << sb.toString
                 s"Output ${counter} lines to attributes.csv"
-              case Xor.Left(error) => s"Error during processing: $error"
+              case Left(error) => s"Error during processing: $error"
 
             }
           }

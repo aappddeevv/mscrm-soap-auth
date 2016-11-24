@@ -1,10 +1,11 @@
 enablePlugins(JavaAppPackaging)
 enablePlugins(JDKPackagerPlugin)
 enablePlugins(UniversalPlugin)
+enablePlugins(BuildInfoPlugin)
 
 name := "mscrm-auth"
 organization := "crm"
-version := "1.0"
+version := "0.1.0"
 scalaVersion := "2.11.8"
 
 scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8")
@@ -30,19 +31,23 @@ libraryDependencies ++= Seq(
     ,"org.log4s" %% "log4s" % "latest.release"
     ,"com.github.pathikrit" %% "better-files" % "latest.release"
     ,"com.iheart" %% "ficus" % "latest.release"
-    ,"org.typelevel" %% "cats" % "0.7.2"
+    ,"org.typelevel" %% "cats" % "0.7.2" // 0.7.2 for 2.11, if using Xor
     ,"co.fs2" %% "fs2-core" % "latest.release"
     ,"co.fs2" %% "fs2-io" % "latest.release"
     ,"org.apache.commons" % "commons-lang3" % "latest.release"
 )
 
-//libraryDependencies ++= Seq(
-//  "io.circe" %% "circe-core",
-//  "io.circe" %% "circe-generic",
-//  "io.circe" %% "circe-parser"
-//).map(_ % "0.5.4")
+libraryDependencies ++= Seq(
+  "io.circe" %% "circe-core",
+  "io.circe" %% "circe-generic",
+  "io.circe" %% "circe-parser",
+  "io.circe" %% "circe-optics"
+).map(_ % "0.5.4") // 0.5.4 for 2.11
 
-EclipseKeys.createSrc := EclipseCreateSrc.Default + EclipseCreateSrc.Resource
+buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion)
+buildInfoPackage := "crm"
+
+EclipseKeys.createSrc := EclipseCreateSrc.Default + EclipseCreateSrc.Resource + EclipseCreateSrc.Managed
 
 EclipseKeys.withSource := true
 
