@@ -33,7 +33,7 @@ import sdk.messages._
  * Functions that compose streams of values from the underlying
  * CRM server requests.
  */
-trait streamhelpers {
+object streamhelpers {
   import org.apache.commons.lang3.StringEscapeUtils._
   import soapnamespaces._
   import sdk.messages.soaprequestwriters._
@@ -268,4 +268,3 @@ trait streamhelpers {
 
 }
 
-object streamhelpers extends streamhelpers

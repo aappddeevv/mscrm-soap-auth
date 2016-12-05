@@ -27,7 +27,7 @@ import scala.util.matching._
 import sdk.soapnamespaces.implicits._
 import sdk.messages.soaprequestwriters._
 import sdk.soapreaders._
-import sdk.metadata.readers._
+import sdk.metadata.xmlreaders._
 import sdk._
 
 case class Config(
@@ -71,8 +71,15 @@ case class Config(
   keyfilePrefix: String = "",
   keyfileEntity: String = "",
   dump: Dump = Dump(),
+  /** Comnand to run for entity scripts. */
   entityCommand: String = "runCommands",
-  commandCallback: Map[String, String] => Either[String, Map[String, String]] = m => Right(Map()),
+  /** Sychronous callback. */
+  commandCallback: (Map[String, Any], Map[String, Any]) => Either[String, Map[String, Any]] = (ctx, cctx) => Right(ctx),
+  /** Hook prior to running a command. */
+  commandPre: (EntityScript.CrmCommand, Map[String, Any]) => (EntityScript.CrmCommand, Map[String, Any]) = (x, y) => (x, y),
+  /** Hook post to running a command. */
+  commandPost: (EntityScript.CrmCommand, Map[String, Any]) => Map[String, Any] = (x, y) => y,
+  /** JSON command file. */
   commandFile: String = "commands.json",
   //connectionPoolIdelTimeoutInSec: Int = 5*60,
   concurrency: Int = 2,
@@ -85,8 +92,12 @@ case class Config(
   take: Option[Long] = None,
   drop: Option[Long] = None,
   outputFormattedValues: Boolean = true,
-  formattedValuesSuffix: String = "_fVz",
-  outputExplodedValues: Boolean = true)
+  formattedValuesSuffix: String = "_fV",
+  outputExplodedValues: Boolean = true,
+  copyDatabaseType: String = "oracle",
+  copyMetadataFile: Option[String] = None,
+  copyAction: String = "",
+  copyFilterFilename: String = "")
 
 /**
  *  Create a key file for a single entity. A key file contains the primary key
@@ -202,7 +213,10 @@ object program {
     note("")
 
     cmd("auth").action((_, c) => c.copy(mode = "auth")).
-      text("Check that authentication works. This is the default command.")
+      text("Check that authentication works. This is the default command.").
+      children(
+        opt[String]('r', "url").optional().valueName("<url>").text("Organization service url.").
+          action((x, c) => c.copy(url = x)))
     note("You need a username/password and -r URL to run the auth command.")
     note("")
 
@@ -292,6 +306,28 @@ object program {
     note("All double quotes and backslashes are removed from dumped values. Formatted values are not dumped.")
     note("")
 
+    cmd("copy").action((_, c) => c.copy(mode = "copy")).text("Copy or update a copy of a local RDBMS from CRM online.")
+      .children(
+        opt[String]('r', "url").optional().valueName("<url>").text("Organization service url.").
+          action((x, c) => c.copy(url = x)),
+        opt[String]("region").optional().valueName("<region abbrev>").text("Organization region abbreviation e.g. NA.").
+          action((x, c) => c.copy(region = x)),
+        opt[String]("filterfile").valueName("<filename>").text("Input regexp filter, one filter per line. No filters means accept everything.")
+          .action((x, c) => c.copy(copyFilterFilename = x)).validate { filename =>
+            if (File(filename).exists) success
+            else failure(s"No filter file ${filename} found.")
+          },
+        cmd("ddl").action((_, c) => c.copy(copyAction = "ddl")).text("DDL generation")
+          .children(
+            opt[String]("crm-metadata-file").optional().text("Filename holding the XML metadata. You can use this program to dump the metadata so it is locally accessible").
+              action((x, c) => c.copy(copyMetadataFile = Option(x))),
+            opt[String]("dbtype").optional().text("Generate ddl for a specific database type. Use list-targets to see possible target names.")
+              action ((x, c) => c.copy(copyDatabaseType = x)),
+            cmd("list-targets").action((_, c) => c.copy(copyAction = "listTargets")).text("List database target types.")))
+    note("There are a few steps involved in using this command. See the documentation.")
+    note("Metadata to create the local RDBMS schema can be generated from a local copy of the metadata infromation or dynamically retrieved from CRM online.")
+    note("")
+
     cmd("test").action((_, c) => c.copy(mode = "test")).text("Run some tests.").
       children(
         urlOpt,
@@ -326,7 +362,6 @@ object program {
           if (emptyUOrP(c) || c.url.trim.isEmpty) failure("Queries require a username, password and url.")
           else success
         case "metadata" =>
-          //println(s"blah: " + c.username + ", " + c.password + ", " + c.url)
           if (emptyUOrP(c) || c.url.trim.isEmpty)
             failure("Metadata requires an username, password and url.")
           else success
@@ -334,6 +369,7 @@ object program {
           if (emptyUOrP(c) || c.url.trim.isEmpty) failure("Entity commands require a username, password and url.")
           else success
         case "test" => success
+        case "copy" => success
       }
     }
 
@@ -343,6 +379,8 @@ object program {
   }
 
   def main(args: Array[String]): Unit = {
+    utils.mscrmConfigureLogback(Option("mscrm.log"))
+
     val config = parser.parse(args, defaultConfig) match {
       case Some(c) => c
       case None => Http.shutdown; return
@@ -361,6 +399,7 @@ object program {
         case "query" => Query(config)
         case "entity" => EntityScript(config)
         case "test" => Test(config)
+        case "copy" => Copy(config)
       }
     } catch {
       case scala.util.control.NonFatal(e) =>
@@ -380,17 +419,102 @@ object program {
   /**
    * Create a post request from a config object.
    */
-  def createPost(config: Config): Req = CrmAuth.createPost(config.url)
+  def createPost(config: Config): Req = crm.sdk.httphelpers.createPost(config.url)
+}
 
-//  /**
-//   * Wrap a raw XML request (should be the full <body> element) with a header and issue the request.
-//   * @return Request body as XML or exception thrown if the response is not OK.
-//   */
-//  def createPost(requestBody: xml.Elem, auth: CrmAuthenticationHeader, config: Config, url: Option[String] = None): Future[xml.Elem] = {
-//    import Defaults._
-//
-//    val body = wrap(auth, requestBody)
-//    val req = CrmAuth.createPost(url getOrElse config.url) << body.toString
-//    Http(req OK as.xml.Elem)
-//  }
+object utils {
+  import java.nio.file._
+  import org.slf4j._
+  import ch.qos.logback.classic._
+  import ch.qos.logback.classic.joran._
+  import ch.qos.logback.core.joran.spi._
+
+  val rootLoggerName = org.slf4j.Logger.ROOT_LOGGER_NAME
+
+  def mscrmConfigureLogback(outputlogfile: Option[String] = None): Unit =
+    configureLogback(None, outputlogfile, Option(getDefaultLogDir()), Option(getDefaultConfDir()))
+
+  /**
+   * Configure logback.
+   *
+   * @param configfile Config file name, not the full path prefix. Default is `logback.xml`.
+   * @param outputlogfile Output log file name. Default is `app.log`.
+   * @param logDir Directory for the log output. Default is `.`. LOG_DIRECTORY Can be used in the config file.
+   * @param confDir Directory to look for the logging configuration file `configfile`. Default is `.`.
+   * @param props Properties for the logging context that become available for variable substitution.
+   */
+  def configureLogback(
+    configfile: Option[String] = None,
+    outputlogfile: Option[String] = None,
+    logDir: Option[String] = None,
+    confDir: Option[String] = None,
+    props: Map[String, String] = Map()): Unit = {
+
+    val context = LoggerFactory.getILoggerFactory().asInstanceOf[LoggerContext]
+    context.reset()
+    val configurator = new JoranConfigurator()
+    context.putProperty("LOG_DIRECTORY", logDir getOrElse ".")
+    props.foreach { case (k, v) => context.putProperty(k, v) }
+    configurator.setContext(context)
+
+    val loggingconfigfile = Paths.get(confDir getOrElse ".", configfile getOrElse "logback.xml")
+    def default() = createDefaultRootLogger(outputlogfile.getOrElse("app.log"), context)
+
+    if (Files.exists(loggingconfigfile))
+      try {
+        configurator.doConfigure(loggingconfigfile.toString)
+      } catch {
+        case j: JoranException =>
+          default()
+          throw new RuntimeException(j)
+      }
+    else
+      default()
+  }
+
+  /**
+   *  Create a default root loogger that logs errors to `file`.
+   */
+  def createDefaultRootLogger(file: String, context: LoggerContext) = {
+    import org.slf4j.LoggerFactory
+    import ch.qos.logback.classic._
+    import ch.qos.logback.classic.encoder._
+    import ch.qos.logback.classic.spi._
+    import ch.qos.logback.core._
+
+    val logger = context.getLogger(rootLoggerName)
+    logger.setLevel(Level.ERROR)
+    val encoder = new PatternLayoutEncoder()
+    encoder.setContext(context)
+    encoder.setPattern("%d{HH:mm:ss.SSS} [%thread] %-5level %logger{35} - %msg%n")
+    encoder.start()
+
+    val appender = new FileAppender[ILoggingEvent]()
+    appender.setContext(context)
+    appender.setName("FILE")
+    appender.setAppend(false)
+    appender.setEncoder(encoder)
+    appender.setFile(file)
+    appender.start()
+    logger.addAppender(appender)
+    appender
+  }
+
+  /** MSCRM default log dir. */
+  def getDefaultLogDir(env: Map[String, String] = sys.env): String = {
+    env.get("MSCRM_LOG_DIR").map(t => Paths.get(t))
+      .orElse(env.get("MSCRM_HOME").map(t => Paths.get(t, "logs")))
+      .map(_.toAbsolutePath().toString)
+      .getOrElse(Paths.get(".").toAbsolutePath().toString)
+  }
+
+  /** MSCRM default conf dir. */
+  def getDefaultConfDir(env: Map[String, String] = sys.env): String = {
+    env.get("MSCRM_CONF_DIR").map(t => Paths.get(t))
+      .orElse(env.get("MSCRM_HOME").map(t => Paths.get(t, "conf")))
+      .filter(p => Files.isDirectory(p))
+      .map(_.toAbsolutePath().toString)
+      .getOrElse(Paths.get(".").toAbsolutePath().toString)
+  }
+
 }

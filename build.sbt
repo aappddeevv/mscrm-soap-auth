@@ -35,6 +35,7 @@ libraryDependencies ++= Seq(
     ,"co.fs2" %% "fs2-core" % "latest.release"
     ,"co.fs2" %% "fs2-io" % "latest.release"
     ,"org.apache.commons" % "commons-lang3" % "latest.release"
+    ,"org.apache.ddlutils" % "ddlutils" % "latest.release"
 )
 
 libraryDependencies ++= Seq(

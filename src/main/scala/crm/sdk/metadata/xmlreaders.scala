@@ -21,7 +21,7 @@ import better.files._
 import scala.util.matching.Regex
 import org.log4s._
 
-object readers {
+object xmlreaders {
 
   import sdk.soapnamespaces._
 
@@ -31,7 +31,7 @@ object readers {
   val isValidForReadReader = (__ \ "IsValidForRead").read[Boolean]
   val isPrimaryIdReader = (__ \ "IsPrimaryId").read[Boolean]
   val isLogicalReader = (__ \ "IsLogical").read[Boolean]
-  val attributeOfReader = (__ \ "AttributeOf").read[String].optional.filter(!_.isEmpty)
+  val attributeOfReader = (__ \ "AttributeOf").read[String].filter(!_.trim.isEmpty).optional
   val columnNumberReader = (__ \ "ColumnNumber").read[Int].default(-1)
   val metadataIdReader = (__ \ "MetadataId").read[String]
   val entityLogicalNameReader = (__ \ "EntityLogicalName").read[String]
@@ -39,6 +39,9 @@ object readers {
   val descriptionNameReaer = (__ \ "Description" \ "UserLocalizedLabel").read[String].optional
   val minValueD = (__ \ "MinValue").read[Double]
   val maxValueD = (__ \ "MaxValue").read[Double]
+  val precisionReader = (__ \ "Precision").read[Int].optional
+  //val minValueDec = (__ \ "MinValue").read[BigDecimal].optional
+  //val maxValueDec = (__ \ "MaxValue").read[BigDecimal].optional
 
   val stringArray: XmlReader[Seq[String]] = (__ \\ "string").read(seq[String])
 
@@ -114,6 +117,18 @@ object readers {
       entityLogicalNameReader and
       minValueD and maxValueD)(DoubleAttribute.apply _)
 
+  protected val bigIntAttributeReader: XmlReader[BigIntAttribute] =
+    (attributeTypeReader.filter(WrongTypeError("BigInt"))(_ == "BigInt") and
+      schemaNameReader and
+      logicalNameReader and
+      isValidForReadReader and
+      isPrimaryIdReader and
+      isLogicalReader and
+      attributeOfReader and
+      columnNumberReader and
+      metadataIdReader and
+      entityLogicalNameReader)(BigIntAttribute.apply _)
+
   protected val moneyAttributeReader: XmlReader[MoneyAttribute] =
     (attributeTypeReader.filter(WrongTypeError("Money"))(_ == "Money") and
       schemaNameReader and
@@ -161,6 +176,33 @@ object readers {
       maxLengthReader and
       formatReader)(StringAttribute.apply _)
 
+  val decimalAttributeReader: XmlReader[DecimalAttribute] =
+    (attributeTypeReader.filter(WrongTypeError("Decimal"))(_ == "Decimal") and
+      schemaNameReader and
+      logicalNameReader and
+      isValidForReadReader and
+      isPrimaryIdReader and
+      isLogicalReader and
+      attributeOfReader and
+      columnNumberReader and
+      metadataIdReader and
+      entityLogicalNameReader and
+      precisionReader)(DecimalAttribute.apply _)
+
+  val memoAttributeReader: XmlReader[MemoAttribute] =
+    (attributeTypeReader.filter(WrongTypeError("Memo"))(_ == "Memo") and
+      schemaNameReader and
+      logicalNameReader and
+      isValidForReadReader and
+      isPrimaryIdReader and
+      isLogicalReader and
+      attributeOfReader and
+      columnNumberReader and
+      metadataIdReader and
+      entityLogicalNameReader and
+      maxLengthReader and
+      formatReader)(MemoAttribute.apply _)
+
   val entityNameAttributeReader: XmlReader[EntityNameAttribute] =
     (attributeTypeReader.filter(WrongTypeError("EntityName"))(_ == "EntityName") and
       schemaNameReader and
@@ -200,13 +242,44 @@ object readers {
     entityLogicalNameReader and
     (__ \ "OptionSet").read(optionSetReader))(PicklistAttribute.apply _)
 
+  val statusAttributeReader: XmlReader[StatusAttribute] = (
+    attributeTypeReader.filter(WrongTypeError("Status"))(_ == "Status") and
+    schemaNameReader and
+    logicalNameReader and
+    isValidForReadReader and
+    isPrimaryIdReader and
+    isLogicalReader and
+    attributeOfReader and
+    columnNumberReader and
+    metadataIdReader and
+    entityLogicalNameReader and
+    (__ \ "OptionSet").read(optionSetReader))(StatusAttribute.apply _)
+
+  val stateAttributeReader: XmlReader[StateAttribute] = (
+    attributeTypeReader.filter(WrongTypeError("State"))(_ == "State") and
+    schemaNameReader and
+    logicalNameReader and
+    isValidForReadReader and
+    isPrimaryIdReader and
+    isLogicalReader and
+    attributeOfReader and
+    columnNumberReader and
+    metadataIdReader and
+    entityLogicalNameReader and
+    (__ \ "OptionSet").read(optionSetReader))(StateAttribute.apply _)
+
   implicit val attributeReader: XmlReader[Attribute] =
     stringAttributeReader orElse
       lookupAttributeReader orElse
       pickListAttributeReader orElse
+      stateAttributeReader orElse
+      statusAttributeReader orElse
+      memoAttributeReader orElse
       entityNameAttributeReader orElse
+      decimalAttributeReader orElse
       dateTimeAttributeReader orElse
       booleanAttributeReader orElse
+      bigIntAttributeReader orElse
       integerAttributeReader orElse
       doubleAttributeReader orElse
       moneyAttributeReader orElse
@@ -247,7 +320,7 @@ object readers {
     (__ \\ "AttributeMetadata").read(seq[Attribute]))(EntityDescription.apply _)
 
   //(attributesReader andThen attributeMetadataReader andThen seq(attributeReader))
-  val x = (__ \\ "AttributeMetadata").read(seq[Attribute])
+  //val x = (__ \\ "AttributeMetadata").read(seq[Attribute])
 
   implicit val schemaReader: XmlReader[CRMSchema] = (__ \\ "EntityMetadata").read(seq[EntityDescription]).map(CRMSchema(_))
 

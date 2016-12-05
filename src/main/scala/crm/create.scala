@@ -27,8 +27,9 @@ import scala.util.matching._
 import sdk.soapnamespaces.implicits._
 import sdk.messages.soaprequestwriters._
 import sdk.soapreaders._
-import sdk.metadata.readers._
+import sdk.metadata.xmlreaders._
 import sdk._
+import sdk.httphelpers._
 
 object Create {
 
@@ -145,7 +146,7 @@ object Create {
 
       val headers = Map("SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
 
-      val req = CrmAuth.createPost(config.url) <:< headers << xml2(header.url).toString
+      val req = httphelpers.createPost(config.url) <:< headers << xml2(header.url).toString
       println("req: " + req.toRequest)
       Http(req OKWithBody as.xml.Elem)
     }.map { resp =>

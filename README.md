@@ -1,4 +1,4 @@
-##Overview
+## Overview
 This is a slightly tweaked version of authentication using SOAP to CRM
 that was taken from [https://github.com/jlattimer/CRMSoapAuthJava.git](https://github.com/jlattimer/CRMSoapAuthJava.git)
 and [https://blogs.msdn.microsoft.com/girishr/2011/02/04/connecting-to-crm-online-2011-web-services-using-soap-requests-only](https://blogs.msdn.microsoft.com/girishr/2011/02/04/connecting-to-crm-online-2011-web-services-using-soap-requests-only).
@@ -24,7 +24,7 @@ help with unit testing. The command line
 options are a bit cumbersome so you can succinctly control the performance envelope. Some command line options
 do not work yet, but I'll be updating them shortly.
 
-##Capabilities
+## Capabilities
 metadata
 * Download an org's metadata describing the entities.
 
@@ -54,9 +54,31 @@ type them in. This takes the place of Excel loading and manual data management f
 unit tests.
 
 other
+
+
+copy/replication
+* Create a copy on an RDBMS and keep updating it using simple CDC. Only a few
+steps are needed to create a local RDBMS schema using this program, copy down
+the data then keep the local copy updated. The RDBMS copy is designed to be
+a REPL that you draw from locally versus a targeted application database
+schema e.g. a data warehouse or reporting database. The generated schema does
+not enforce referential integrity in order to make it easy to load and manipulate.
+
+Other
 * Run --help to print show other capabilities.
 
 
+
+## Thanks
 Many thanks to contributors, a particular person in general recently who remains anonymous
 but was instrumental in pushing this application forward. This person found many
 errors and and built out some nascent capabilities.
+
+
+## Notes
+
+Miscellaneous notes:
+* DDL generation library: Looked at empire-db and ddlutils but both are embedded and
+specialized for their respective parent packages. Other packages
+are available but are not cleanly separable from their parent packages. Had to role my own. 
+

@@ -8,6 +8,7 @@ import cats.implicits._
 import java.time._
 import crm.sdk.metadata._
 import crm.sdk.errorloggers._
+import fs2._
 
 /**
  * Messaging support for sending requests to CRM. For the moment, very
@@ -26,11 +27,12 @@ package object messages {
   type Parameters = Map[String, Any]
 
   /**
-   * A typed value meant to be sent in a message to a CRM server.
-   *  Most values are wrapped in a type so the rendering/processing can
-   *  occur depending on the message type. In the case where a value is complex
-   *  or has a type that does not match a JVM type, a
-   *  CrmValue should be used.
+   * A typed value meant to be sent/received in a message to a CRM server.
+   *  Some CRM values are wrapped in a type so the rendering/processing can
+   *  occur depending on the value type. In the case where a value is complex,
+   *  has a type that does not match a JVM type or has a type different from
+   *  its JVM type (e.g. a Guid which is represented by a String), a
+   *  CrmValue should be used to ensure proper processing.
    */
   sealed trait CrmValue
   /** An entity reference with a possible target. */
@@ -39,12 +41,18 @@ package object messages {
   case class Guid(id: String) extends CrmValue
   /** An OptionSetValue. If you do not have the code, you need to lookup the string value and convert it. */
   case class OptionSetValue(value: Int) extends CrmValue
-  /** Unset value. Unsetting a value is not modeled by Option, use this or null or None instead. */
+  /** Unset/null/nil value. Unsetting a value is not modeled by Option, use this or null or None instead. */
   case object UnsetValue extends CrmValue
   /** An invalid value. Causes an error during processing. */
   case class InvalidValue(msg: String) extends CrmValue
   /** Money value */
-  case class MoneyValue(value: Float) extends CrmValue
+  case class MoneyValue(value: Double) extends CrmValue
+  /**
+   * Value with a type represented as as String. This value class
+   *  should be used sparingly as a value should be either a
+   *  JVM type directly or one of the other CRMValue classes.
+   */
+  case class TypedValue(value: Any, t: String) extends CrmValue
 
   /** Empty parameters. */
   val EmptyParameters = Map.empty[String, Any]
@@ -52,13 +60,13 @@ package object messages {
   /**
    * Request types used with Execute or ExecuteMultiple methods. Some of
    * these overlap with the SOAP methods.
-   * //CreateRequest
-   * //UpdateRequest
-   * //DeleteRequest
-   * //AssociateRequest
-   * //DisassociateRequest
+   * //CreateRequest - done
+   * //UpdateRequest -done
+   * //DeleteRequest - done
+   * //AssociateRequest - done
+   * //DisassociateRequest - done
    * //SetStateRequest
-   * //WhoAmIRequest
+   * //WhoAmIRequest - done
    * //AssignRequest
    * //GrantAccessRequest
    * //ModifyAccessRequest
@@ -83,8 +91,13 @@ package object messages {
   /** Execute multiple requests. */
   case class ExecuteMultipleRequest(requests: Seq[OrgRequest]) extends OrgRequest("ExecuteMultipleRequest")
 
-  /** Retrieve metadata. */
-  case class AllEntitiesRequest(parameters: Parameters, asIfPublished: Boolean = false) extends OrgRequest("RetrieveAllEntitiesRequest")
+  /**
+   * Retrieve metadata. The filter can be strings:  All, Attributes, Default, Entity, Privileges, or Relationships.
+   */
+  case class RetrieveAllEntitiesRequest(entityFilter: Seq[String] = Nil, asIfPublished: Boolean = true) extends OrgRequest("RetrieveAllEntitiesRequest")
+
+  /** Retrieve metadata for a single entity. */
+  case class RetrieveEntityRequest(entity: String, entityFilter: Seq[String] = Nil, asIfPublished: Boolean = true) extends OrgRequest("RetrieveEntityRequest")
 
   /** Retrieve endpoints. */
   case class EndpointsRequest() extends OrgRequest("Endpoints")
@@ -95,8 +108,29 @@ package object messages {
   /** Update request. */
   case class UpdateRequest(entity: String, id: String, parameters: Parameters) extends OrgRequest("UpdateRequest")
 
+  /** Delete request. */
+  case class DeleteRequest(entity: String, id: String) extends OrgRequest("DeleteRequest")
+
   /** Who Am I request */
   case class WhoAmIRequest() extends OrgRequest("WhoAmIRequest")
+
+  /**
+   * Associate two records source -> relationship -> to.
+   *
+   *  @param source Source entity e.g an account.
+   *  @param relationship Logical name of the relationship link e.g. contact_customer_accounts.
+   *  @param to: Target entity e.g. a contact.
+   */
+  case class AssociateRequest(source: EntityReference, relationship: String, to: Seq[EntityReference]) extends OrgRequest("Associate")
+
+  /**
+   * Disassociate two records source -> relationship -> to.
+   *
+   *  @param source Source entity e.g an account.
+   *  @param relationship Logical name of the relationship link e.g. contact_customer_accounts.
+   *  @param to: Target entity e.g. a contact.
+   */
+  case class DisassociateRequest(source: EntityReference, relationship: String, to: Seq[EntityReference]) extends OrgRequest("Associate")
 
   /**
    * Methods.
@@ -120,21 +154,6 @@ package object messages {
 
   /** Execute a request. */
   case class Execute(request: OrgRequest)
-  
-  
-  
-  /*
-  <request i:type="b:RetrieveAllEntitiesRequest" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
-            <b:Parameters xmlns:c="http://schemas.datacontract.org/2004/07/System.Collections.Generic">
-              <b:KeyValuePairOfstringanyType>
-                <c:key>EntityFilters</c:key><c:value i:type="d:EntityFilters" xmlns:d="http://schemas.microsoft.com/xrm/2011/Metadata">{ entityFilter }</c:value>
-              </b:KeyValuePairOfstringanyType>
-              <b:KeyValuePairOfstringanyType>
-                <c:key>RetrieveAsIfPublished</c:key><c:value i:type="d:boolean" xmlns:d="http://www.w3.org/2001/XMLSchema">{ retrieveAsIfPublished.toString }</c:value>
-              </b:KeyValuePairOfstringanyType>
-            </b:Parameters><b:RequestId i:nil="true"/><b:RequestName>RetrieveAllEntities</b:RequestName>
-          </request>
-*/
 
   /**
    * Find attributes. Return either error messages or the attribute metadata objects mapped to the attribute name.
@@ -223,50 +242,6 @@ package object messages {
         sleft(e)
     }
   }
-
-  def createRequestTemplate(entity: String, parameters: Map[String, Any]) =
-    <request i:type="a:CreateRequest" xmlns:a="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
-      <a:Parameters xmlns:b="http://schemas.datacontract.org/2004/07/System.Collections.Generic" xmlns:e="http://schemas.microsoft.com/2003/10/Serialization">
-        <a:KeyValuePairOfstringanyType>
-          <b:key>Target</b:key>
-          <b:value i:type="a:Entity">
-            <a:Attributes>
-              { makeKVPairs(parameters) }
-            </a:Attributes>
-            <a:EntityState i:nil="true"/>
-            <a:FormattedValues/>
-            <a:Id>00000000-0000-0000-0000-000000000000</a:Id>
-            <a:LogicalName>{ entity }</a:LogicalName>
-            <a:RelatedEntities/>
-            <a:RowVersion i:nil="true"/>
-          </b:value>
-        </a:KeyValuePairOfstringanyType>
-      </a:Parameters>
-      <a:RequestId i:nil="true"/>
-      <a:RequestName>Create</a:RequestName>
-    </request>
-
-  def updateRequestTemplate(entity: String, id: String, parameters: Map[String, Any]) =
-    <request i:type="a:UpdateRequest" xmlns:a="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
-      <a:Parameters xmlns:b="http://schemas.datacontract.org/2004/07/System.Collections.Generic" xmlns:e="http://schemas.microsoft.com/2003/10/Serialization">
-        <a:KeyValuePairOfstringanyType>
-          <b:key>Target</b:key>
-          <b:value i:type="a:Entity">
-            <a:Attributes>
-              { makeKVPairs(parameters) }
-            </a:Attributes>
-            <a:EntityState i:nil="true"/>
-            <a:FormattedValues/>
-            <a:Id>{ id }</a:Id>
-            <a:LogicalName>{ entity }</a:LogicalName>
-            <a:RelatedEntities/>
-            <a:RowVersion i:nil="true"/>
-          </b:value>
-        </a:KeyValuePairOfstringanyType>
-      </a:Parameters>
-      <a:RequestId i:nil="true"/>
-      <a:RequestName>Update</a:RequestName>
-    </request>
 
 }
 

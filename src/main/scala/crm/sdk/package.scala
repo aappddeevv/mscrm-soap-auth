@@ -24,27 +24,12 @@ import com.lucidchart.open.xtract.{ XmlReader, _ }
 package object sdk {
 
   /**
-   * Convert a dispatch Response to a string so that the error
-   *  objects do not need to carry a Response object directly.
-   */
-  def rtos(raw: Response) = {
-    import scala.collection.JavaConverters._
-    val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
-    s"""Error during processing. Providing headers and response.
-Headers:
-$headers    
-ResponseBody:
-${raw.getResponseBody}
-"""
-  }
-
-  /**
    * Error objects representing different types of errors
    * from server responses. This itemizes all of the different
-   * types of errors that we may encounter when receiving a CRM SOAP message
+   * types of errors that may be encountered when receiving a CRM SOAP message
    * from a server.
    *
-   * @body The string content of the error.
+   * @param body The string content of the error.
    */
   sealed abstract class ResponseError {
     def body: String
@@ -70,6 +55,21 @@ ${raw.getResponseBody}
    *  when there is a CRM application level error.
    */
   case class CrmError(val body: String, fault: Fault, msg: Option[String]) extends ResponseError()
+
+  /**
+   * Convert a dispatch Response to a string so that the error
+   *  objects do not need to carry a Response object directly.
+   */
+  def rtos(raw: Response) = {
+    import scala.collection.JavaConverters._
+    val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
+    s"""Error during processing. Providing headers and response.
+Headers:
+$headers    
+ResponseBody:
+${raw.getResponseBody}
+"""
+  }
 
   /**
    * Typeclasses to dump out logging information using standard loggers
@@ -128,6 +128,28 @@ ${raw.getResponseBody}
         }
       }
     }
+  }
+
+  /**
+   * Convert our ADT into a user message that is hopefully useful. This
+   * does not find CRM Fault messages in th response.
+   */
+  def toUserMessage(error: ResponseError): String = error match {
+    case UnexpectedStatus(r, c, msg) => s"""Unexpected status code returned from server: $c"""
+    case UnknonwnResponseError(r, m, ex) => s"Unexpected error occurred: $m"
+    case XmlParseError(r, e, m) => s"Error parsing response from server" + m.map(": " + _).getOrElse("")
+    case CrmError(raw, fault, msgOpt) => "Processing error on server" + msgOpt.map(": " + _).getOrElse("")
+  }
+
+  /** Convert a raw response to a string listing headers and the response body. */
+  def show(raw: Response) = {
+    import scala.collection.JavaConverters._
+    val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
+    s"""Headers:
+$headers    
+ResponseBody:
+${raw.getResponseBody}
+"""
   }
 
   /**
@@ -198,17 +220,16 @@ ${raw.getResponseBody}
 
   /**
    * Value returned from the server. A value from the
-   *  CRM may have multiple components to it. You should
-   *  not think of a value returned from the CRM server
-   *  as being a simple value such as an Int. A value
-   *  can have multiple parts.
+   *  CRM may have multiple components to it. A subsequent
+   *  transformation process may alter the server value
+   *  and create a pure JVM type or another "wrapped" value.
    */
   trait ServerValue {
     /** Raw server representation. */
     def repr: scala.xml.NodeSeq
     /**
      * String representation extracted from the raw server representation.
-     *  This value does not reflect type information.
+     *  This value does not reflect type information or conversion.
      */
     def text: String
   }
@@ -260,11 +281,47 @@ ${raw.getResponseBody}
    */
   case class Envelope(header: ResponseHeader, body: ResponseBody)
 
+  /** Basic online authentication information. */
+  trait AuthenticationHeader {
+    def key: String
+    def token1: String
+    def token2: String
+  }
+
   /**
    * Authentication information for creating security headers. The URL
    * that this authentication applies to is also included.
    * @param url URL that the authentication is related to.
    */
-  case class CrmAuthenticationHeader(Header: scala.xml.Elem = null, key: String = "", token1: String = "", token2: String = "", Expires: Date = null, url: String = "")
+  case class CrmAuthenticationHeader( /*Header: scala.xml.Elem = null,*/
+    key: String = "", token1: String = "", token2: String = "",
+    Expires: Date = null, url: String = "") extends AuthenticationHeader
 
+  implicit class EnrichedEnvelope(e: Envelope) {
+    /**
+     * Convert an Envelope to an ExecuteResult or a ResponseError. If the
+     *  Envelope is a Fault, the Fault is converted to a ResponseError.
+     */
+    def toExecuteResult: Either[ResponseError, ExecuteResult] = e match {
+      case Envelope(_, er@ExecuteResult(_, _)) => Right(er)
+      case Envelope(_, f@Fault(_, _)) => Left(CrmError("response body not available", f, Some("Returned result contained a server fault")))
+    }
+  }
+
+  /**
+   * Hack job...a library should have this somewhere that is much smarter.
+   *  This only fixes type signatures but does not translate different
+   *  representations. Both access methods throw exceptions if the 
+   *  expected type is wrong.
+   */
+  implicit class EnrichedMap(m: Map[String, Any]) {
+    /** Get a typed optional value out of the map. You could get a Some(r) or None. */
+    def getAs[R](k: String): Option[R] = m.get(k).map(_.asInstanceOf[R])
+
+    /** Get a value directly but throw an exception if the value does not exist. You can get a R or an exception. */
+    def as[R](k: String): R = {
+      val tmp = m.get(k)
+      tmp.map(_.asInstanceOf[R]).getOrElse(throw new RuntimeException(s"Could not convert value $tmp to proper type."))
+    }
+  }
 }

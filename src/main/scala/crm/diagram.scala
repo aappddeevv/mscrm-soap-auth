@@ -79,7 +79,7 @@ object diagram {
     }
 
     import metadata._
-    import readers._
+    import xmlreaders._
 
     val xml = nonFatalCatch withApply { ex =>
       println(s"Unable to read input XML file: ${config.input}")

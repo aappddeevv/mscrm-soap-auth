@@ -86,8 +86,6 @@ trait httphelpers {
   }
 
   /**
-   *
-   * @return Date The date with added minutes.
    * @param minutes
    *            Number of minutes to add.-
    * @param time
@@ -145,6 +143,9 @@ trait httphelpers {
     logger.debug(s"Cache created: $filename")
   }
 
+  /** Create a POST SOAP request. */
+  def createPost(url: String): Req = dispatch.url(endpoint(url)).secure.POST.setContentType("application/soap+xml", "utf-8")
+
   /**
    * Allows you to use `Http(req OkWithBody as.xml.Elem)` to obtain
    * the result as an Elem if successful or a ApiHttpError, if an error
@@ -185,28 +186,6 @@ trait httphelpers {
   }
 
   /**
-   * Convert our ADT into a user message that is hopefully useful. This
-   * does not find CRM Fault messages in th response.
-   */
-  def toUserMessage(error: ResponseError): String = error match {
-    case UnexpectedStatus(r, c, msg) => s"""Unexpected status code returned from server: $c"""
-    case UnknonwnResponseError(r, m, ex) => s"Unexpected error occurred: $m"
-    case XmlParseError(r, e, m) => s"Error parsing response from server" + m.map(": " + _).getOrElse("")
-    case CrmError(raw, fault, msgOpt) => "Processing error on server" + msgOpt.map(": " + _).getOrElse("")
-  }
-
-  /** Convert a raw response to a string listing headers and the response body. */
-  def show(raw: Response) = {
-    import scala.collection.JavaConverters._
-    val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
-    s"""Headers:
-$headers    
-ResponseBody:
-${raw.getResponseBody}
-"""
-  }
-
-  /**
    * Exception that captures the response code and the response object.
    * Having the response and response body may allow you to diagnose the bad response
    * faster and easier.
@@ -214,10 +193,14 @@ ${raw.getResponseBody}
   case class ApiHttpError(code: Int, response: com.ning.http.client.Response)
     extends Exception("Unexpected response status: %d".format(code))
 
-  /** Convert a dispatch Response to XML. */
+  /** Convert a dispatch Response to XML or a ResponseError. No logging occurs if there
+   *  is an error
+   */
   def responseToXml(response: Response): Either[ResponseError, xml.Elem] = {
     val body = response.getResponseBody
-    Either.catchNonFatal { scala.xml.XML.loadString(body) }.leftMap(t => UnknonwnResponseError(rtos(response), "Unable to deserialize XML payload.", Some(t)))
+    Either.catchNonFatal { scala.xml.XML.loadString(body) }.leftMap { t =>
+      UnknonwnResponseError(rtos(response), "Unable to deserialize XML payload.", Some(t))
+    }
   }
 
   /**
@@ -225,7 +208,7 @@ ${raw.getResponseBody}
    * logging and converts errors to an algebraic data type.
    * Parsing errors are non-fatal errors are captured and converted to a Left.
    * Because `T` is generic, this function does not translate SOAP Fault's
-   * into Lefts.
+   * into Lefts. Parse errors are logged.
    *
    * @param T The expected return type.
    * @param reader A reader of the XML payload that returns type T.

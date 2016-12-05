@@ -28,11 +28,11 @@ import sdk.soapnamespaces.implicits._
 import sdk.messages._
 import sdk.messages.soaprequestwriters._
 import sdk.soapreaders._
-import sdk.metadata.readers._
+import sdk.metadata.xmlreaders._
 import sdk._
 import scala.xml._
 import sdk.metadata._
-import sdk.metadata.readers._
+import sdk.metadata.xmlreaders._
 import sdk._
 import soapreaders._
 import CrmXmlWriter._
@@ -41,6 +41,7 @@ import fs2.async.immutable._
 import fs2.util._
 import java.util.concurrent.Executors
 import java.nio.file._
+import sdk.metadata.soapwriters._
 
 object Query {
 

@@ -1,4 +1,4 @@
-package soapnamespaces
+package crm
 package sdk
 
 import org.scalatest._
@@ -11,7 +11,7 @@ class readerspec extends FlatSpec with Matchers {
   import com.lucidchart.open.xtract.XmlReader._
   import play.api.libs.functional.syntax._
 
-  import soapreaders._
+  import crm.sdk.soapreaders._
 
   val faultXml =
     <Fault>

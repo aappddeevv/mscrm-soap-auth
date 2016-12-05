@@ -21,7 +21,15 @@ import scala.language.implicitConversions
 /** Readers helpful in reading raw XML responses */
 object soapreaders {
 
-  import metadata.readers.iTypeReader
+  import metadata.xmlreaders.iTypeReader
+
+  /** Remove a colon separated prefix from the string if it exists. */
+  def removePrefix(in: String): String = {
+    val idx = in.indexOf(":")
+    if(idx>=0) in.substring(idx+1)
+    else in
+  }
+ 
 
   /** Read <value> */
   val entityReferenceValueReader = (
@@ -38,7 +46,7 @@ object soapreaders {
   val typedValueReader = (
     nodeReader.map(_.text) and
     nodeReader and
-    iTypeReader(soapnamespaces.NSSchemaInstance).default(""))(TypedServerValue.apply _)
+    iTypeReader(soapnamespaces.NSSchemaInstance).map(removePrefix).default(""))(TypedServerValue.apply _)
 
   /** Read a value from the key-value pair. Read <value>. */
   val valueReader =
@@ -139,21 +147,6 @@ object soapreaders {
   //    (__ \\ "KeyValuePairOfstringanyTypeReader").
   //      read(seq(keyValuePairOfstringanyTypeReader))
 
-  implicit val readEndpoint: XmlReader[Endpoint] = (
-    (__ \ "key").read[String] and
-    (__ \ "value").read[String])(Endpoint.apply _)
-
-  implicit val readOrganizationDetail: XmlReader[OrganizationDetail] = (
-    (__ \ "FriendlyName").read[String] and
-    (__ \ "OrganizationId").read[String] and
-    (__ \ "OrganizationVersion").read[String] and
-    (__ \ "State").read[String] and
-    (__ \ "UniqueName").read[String] and
-    (__ \ "UrlName").read[String] and
-    (__ \ "Endpoints" \ "KeyValuePairOfEndpointTypestringztYlk6OT").read(seq[Endpoint]).default(Seq()))(OrganizationDetail.apply _)
-
-  implicit val readSeqOrganizationDetail: XmlReader[Seq[OrganizationDetail]] = (__ \\ "OrganizationDetail").read(seq[OrganizationDetail])
-
   implicit val readExecuteResult: XmlReader[ExecuteResult] = {
     (
       (__ \ "ResponseName").read[String] and
@@ -174,7 +167,7 @@ object soapreaders {
   }
 
   /** Reader for create message. */
-  val createRequestResponseReader = {
+  val executeRequestResponseReader = {
     (responseHeaderReader and
       (body andThen (
         (fault andThen ((detail andThen organizationServiceFault andThen faultReader) or reasonReader)) or

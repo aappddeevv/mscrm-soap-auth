@@ -27,8 +27,9 @@ import scala.util.matching._
 import sdk.soapnamespaces.implicits._
 import sdk.messages.soaprequestwriters._
 import sdk.soapreaders._
-import sdk.metadata.readers._
+import sdk.metadata.xmlreaders._
 import sdk._
+import sdk.discovery._
 
 object Discovery {
 
@@ -140,14 +141,14 @@ object Discovery {
             }.mkString
         }
 
-        import soapreaders._
+        import discovery.soapreaders._
 
         // Endpoints come from the discovery URL locaton, not the actual org of course.
         val endpoints = discoveryAuth(Http, config.username, config.password, config.region).
           flatMap { discoveryAuth =>
             discoveryAuth match {
               case Right(auth) =>
-                val orgs = requestEndpoints(Http, auth).map { presult =>
+                val orgs = discovery.soapwriters.requestEndpoints(Http, auth).map { presult =>
                   val sb = new StringBuilder()
                   presult match {
                     case Right(orgs) =>
@@ -167,7 +168,7 @@ object Discovery {
 
       case "listRegions" =>
         println("Known discovery endpoints")
-        locationsToDiscoveryURL.foreach {
+        regionToDiscoveryUrl.foreach {
           case (k, v) => println(f"$k%-10s: $v")
         }
       case _ =>

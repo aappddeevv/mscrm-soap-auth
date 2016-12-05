@@ -20,8 +20,16 @@ import better.files._
 import scala.util.matching.Regex
 import org.log4s._
 
-/** 
+/**
  *  Metadata objects retrieveable from the CRM server.
+ *  The metadata from CRM is expressed in XML so
+ *  an object layer is needed to help with schema
+ *  processing.
+ *
+ *  Procesing only grabs the user localized versions
+ *  of localized strings.
+ *
+ *  TODO: Allow language selection on localized strings.
  */
 package object metadata {
 
@@ -92,6 +100,18 @@ package object metadata {
     metadataId: String,
     entityLogicalName: String) extends Attribute
 
+  case class DecimalAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
+    precision: Option[Int]) extends Attribute
+
   case class BooleanAttribute(attributeType: String,
     schemaName: String,
     logicalName: String,
@@ -127,6 +147,17 @@ package object metadata {
     minValue: Double = 0,
     maxValue: Double = 0) extends Attribute
 
+  case class BigIntAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String) extends Attribute
+
   case class StringAttribute(attributeType: String,
     schemaName: String,
     logicalName: String,
@@ -138,6 +169,19 @@ package object metadata {
     metadataId: String,
     entityLogicalName: String,
     minLength: Int = 0,
+    maxLength: Int,
+    format: Option[String]) extends Attribute
+
+  case class MemoAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean,
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
     maxLength: Int,
     format: Option[String]) extends Attribute
 
@@ -164,6 +208,30 @@ package object metadata {
     metadataId: String,
     entityLogicalName: String,
     targets: Seq[String]) extends Attribute
+
+  case class StateAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
+    options: OptionSet) extends Attribute
+
+  case class StatusAttribute(attributeType: String,
+    schemaName: String,
+    logicalName: String,
+    isValidForRead: Boolean,
+    isPrimaryId: Boolean,
+    isLogical: Boolean, // whether stored in a different table
+    attributeOf: Option[String] = None,
+    columnNumber: Int = -1,
+    metadataId: String,
+    entityLogicalName: String,
+    options: OptionSet) extends Attribute
 
   case class PicklistAttribute(attributeType: String,
     schemaName: String,
@@ -241,4 +309,37 @@ package object metadata {
    * Find an entity ignoring case in the entity's logical name.
    */
   def findEntity(ename: String, schema: CRMSchema) = schema.entities.find(_.logicalName.trim.toUpperCase == ename.trim.toUpperCase)
+
+  object AttributeTypeCodes {
+
+    sealed class AttributeTypeCode(code: Int, label: String)
+
+    case object BigInt extends AttributeTypeCode(0x12, "BigInt")
+    case object Boolean extends AttributeTypeCode(0, "Boolean")
+    case object CalendarRules extends AttributeTypeCode(0x10, "CalendarRules")
+    case object Customer extends AttributeTypeCode(1, "Customer")
+    case object DateTime extends AttributeTypeCode(2, "DateTime")
+    case object Decimal extends AttributeTypeCode(3, "Decimal")
+    case object Double extends AttributeTypeCode(4, "Double")
+    case object EntityName extends AttributeTypeCode(20, "EntityName")
+    case object Integer extends AttributeTypeCode(5, "Integer")
+    case object Lookup extends AttributeTypeCode(6, "Lookup")
+    case object ManagedProperty extends AttributeTypeCode(0x13, "ManagedProperty")
+    case object Memo extends AttributeTypeCode(7, "Memo")
+    case object Money extends AttributeTypeCode(8, "Money")
+    case object Owner extends AttributeTypeCode(9, "Owner")
+    case object PartyList extends AttributeTypeCode(10, "PartyList")
+    case object Picklist extends AttributeTypeCode(11, "Picklist")
+    case object State extends AttributeTypeCode(12, "State")
+    case object Status extends AttributeTypeCode(13, "Status")
+    case object String extends AttributeTypeCode(14, "String")
+    case object Uniqueidentifier extends AttributeTypeCode(15, "Uniqueidentifier")
+    case object Virtual extends AttributeTypeCode(0x11, "Virtual")
+
+    val attributeTypeCodes = Seq(BigInt, Boolean, CalendarRules, Customer,
+      DateTime, Decimal, Double, EntityName, Integer, Lookup, ManagedProperty,
+      Memo, Money, Owner, PartyList, Picklist, State, Status, String,
+      Uniqueidentifier, Virtual)
+  }
+
 }

@@ -1,4 +1,4 @@
-package soapnamespaces
+package crm
 package sdk
 
 import org.scalatest._
@@ -11,12 +11,23 @@ class crmreaderspec extends FlatSpec with Matchers {
   import com.lucidchart.open.xtract.XmlReader._
   import play.api.libs.functional.syntax._
 
-  import metadata._
-  import metadata.readers._
-  import soapnamespaces.sdk.soapreaders._
+  import crm.sdk.metadata._
+  import crm.sdk.metadata.xmlreaders._
+  import crm.sdk.soapreaders._
 
   def loadXml(f: String) = XML.load(getClass.getResource(f))
 
+  "removeprefix" should "remove prefix" in { 
+    val s = soapreaders.removePrefix("x:int")
+    s shouldBe ("int")  
+  }
+  
+  it should "not remove a prefix that does not exist" in { 
+    val s = soapreaders.removePrefix("int")
+    s shouldBe ("int")
+  }
+  
+  
   "picklistattribute reader" should "read an option attribute" in {
     val picklistAttribute = loadXml("am.xml")
 
@@ -39,8 +50,8 @@ class crmreaderspec extends FlatSpec with Matchers {
 
     withClue("the entire attribute:") {
       pickListAttributeReader.read(picklistAttribute).foreach { x =>
-        x.attributeType shouldBe ("PickList")
-        x.logicalName shouldBe ("Form State")
+        x.attributeType shouldBe ("Picklist")
+        x.logicalName shouldBe ("formactivationstate")
       }
     }
   }
@@ -60,7 +71,7 @@ class crmreaderspec extends FlatSpec with Matchers {
       <LogicalName>BigX</LogicalName>
     </value>
 
-  val valueX = <value i:type="Int">10</value>
+  val valueX = <value xmlns:i="http://www.w3.org/2001/XMLSchema-instance" i:type="Int">10</value>
 
   val valueValue = <value i:type="OptionSetValue"><Value>1</Value></value>
 

@@ -27,8 +27,9 @@ import scala.util.matching._
 import sdk.soapnamespaces.implicits._
 import sdk.messages.soaprequestwriters._
 import sdk.soapreaders._
-import sdk.metadata.readers._
+import sdk.metadata.xmlreaders._
 import sdk._
+import sdk.httphelpers._
 
 object Metadata {
 
@@ -48,9 +49,8 @@ object Metadata {
         println("Obtaining metadata...")
         val metadata = sasync {
           val h = await(header)
-          val req = createPost(config) << retrieveAllEntitiesTemplate(h, config.objects).toString
-          val m = await(Http(req OKWithBody as.xml.Elem).unwrapEx)
-          config.output.toFile.printWriter(true).map(_.write(m.toString))
+          val m = await(sdk.metadata.soapwriters.fetchEntityMetadata(Http, h, config.objects.split(" ")))
+          config.output.toFile.printWriter(true).map(_.write(m.getResponseBody))
         } recover {
           case scala.util.control.NonFatal(ex) =>
             println("Exception obtaining metadata")
