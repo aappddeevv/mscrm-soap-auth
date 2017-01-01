@@ -5,14 +5,12 @@ package driver
 import fs2._
 import scala.concurrent._
 import scala.concurrent.duration._
-import dispatch._
 import org.log4s._
 import sdk.messages._
 import com.lucidchart.open.xtract._
 import cats._
 import cats.data._
 import cats.implicits._
-import com.ning.http.client._
 import sdk.httphelpers._
 import sdk.metadata.soapwriters._
 import sdk.soapnamespaces.implicits._
@@ -22,6 +20,9 @@ import sdk.soapreaders._
 import sdk.CrmAuth._
 import sdk.messages.soaprequestwriters._
 import scala.util._
+import org.asynchttpclient._
+
+
 
 /**
  * The client side API provides methods for calling a CRM online server using
@@ -92,6 +93,8 @@ final case class DefaultClient(conn: Service[xml.Elem, Response], shutdown: Task
   def shutdownNow(): Unit = shutdown.unsafeAttemptRunSync()
 }
 
+
+/*
 object DispatchClient {
 
   implicit private val logger = getLogger
@@ -183,3 +186,4 @@ object DispatchClient {
   }
 
 }
+*/

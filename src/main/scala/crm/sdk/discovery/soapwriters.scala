@@ -2,7 +2,6 @@ package crm
 package sdk
 package discovery
 
-
 import scala.language._
 import java.io._
 import java.net._
@@ -19,7 +18,6 @@ import scala.concurrent.ExecutionContext
 import org.apache.commons.codec.binary.Base64;
 import org.w3c.dom._
 import org.xml.sax.SAXException;
-import dispatch._, Defaults._
 import org.log4s._
 import com.lucidchart.open.xtract._
 import com.lucidchart.open.xtract.{ XmlReader, __ }
@@ -32,9 +30,9 @@ import cats.implicits._
 import cats.syntax._
 import sdk.driver.CrmException
 import fs2._
-import dispatch.retry._
 import metadata._
 import sdk.messages._
+import scala.concurrent._
 
 import soapnamespaces._
 
@@ -90,7 +88,7 @@ object soapwriters {
   val SDKClientVersionHeader = <a:SdkClientVersion xmlns:a="http://schemas.microsoft.com/xrm/2011/Contracts">7.0</a:SdkClientVersion>
 
   /**
-   * Create a request to obtain the list of organizations. Does not include the <body> tag.
+   * Create an Execute body to obtain the list of organizations. Does not include the <body> tag.
    * @return An execute request including the <Execute> tag.
    */
   val retrieveOrganizationsRequestTemplate: xml.Elem =
@@ -109,28 +107,25 @@ object soapwriters {
   }
 
   /**
-   * Return organization detail using app default error handling. If an error occurs,
-   * the left side holds a user presentable error message. Detailed error information
-   * is provided in the log.
+   * Return organization detail using app default error handling.
    *
-   * @param auth Auth for discovery service.
+   * @param uri The discovery service endpoint service identifier (looks like the URL for the discovery service)..
+   * @param http SOAP connection
    */
-  def requestEndpoints(http: HttpExecutor, auth: CrmAuthenticationHeader)(implicit ex: ExecutionContext, reader: XmlReader[Seq[OrganizationDetail]]): Future[Either[String, Seq[OrganizationDetail]]] = {
-    val r = discoveryRequestEnvelopeTemplate(retrieveOrganizationsRequestTemplate)    
-    val reqXml = messages.soaprequestwriters.addAuth(r, auth)
-    val req = dispatch.url(auth.url).secure.POST.setContentType("application/soap+xml", "utf-8") << reqXml.toString
-    logger.debug("getEndpoints:request: " + req.toRequest)
-    logger.debug("getEndpoints:request body: " + reqXml)
-    http(req OKThenParse (reader, logger))(ex).map { result =>
+  def requestEndpoints(http: crm.sdk.client.DiscoveryCrmClient)/*(implicit ex: ExecutionContext)*/: Task[Seq[OrganizationDetail]] = {
+    import crm.sdk.driver._
+    import fs2.interop.cats._
+    
+    val req = http.request.withBody(retrieveOrganizationsRequestTemplate)
+    logger.debug("getEndpoints:request: " + req)
+    
+    http.fetch(req)(toXml.run).map(soapreaders.readSeqOrganizationDetail.read).flatMap { result =>
       result match {
-        case Right(endpoints) => Right(endpoints)
-        case Left(UnexpectedStatus(_, code, _)) => Left("Unexpected response from server.")
-        case Left(UnknonwnResponseError(_, msg, _)) => Left(s"Unknown error: $msg")
-        case Left(XmlParseError(_, _, _)) => Left("Unable to interpret response from server.")
-        case Left(CrmError(_, _, _)) => Left("Server returned a fault.")
+        case ParseSuccess(endpoints) => Task.now(endpoints)
+        case PartialParseSuccess(endpoints, err) => Task.now(endpoints)
+        case ParseFailure(err) => Task.fail(new HandlerError(NonEmptyList.of(s"Unknown error: ${err.toString}")))
       }
     }
   }
 
 }
-

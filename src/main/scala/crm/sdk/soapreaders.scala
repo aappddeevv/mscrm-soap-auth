@@ -3,7 +3,6 @@ package sdk
 
 import scala.language._
 import scala.util.control.Exception._
-import dispatch._, Defaults._
 import java.util.Date;
 import cats._
 import cats.data._
@@ -172,6 +171,14 @@ object soapreaders {
       (body andThen (
         (fault andThen ((detail andThen organizationServiceFault andThen faultReader) or reasonReader)) or
         (executeResponse andThen executeResult andThen readExecuteResult))))(Envelope.apply _)
+  }
+  
+  /** Read a fault by looking for the Reason element at any level. 
+   *  The code is always -1.
+   */
+  val simpleFaultResponseReader = {    
+      (XmlReader.pure(-1) and
+          (__ \\ "Fault" \\ "Reason" \\ "Text").read[String])(Fault.apply _)
   }
 
 }

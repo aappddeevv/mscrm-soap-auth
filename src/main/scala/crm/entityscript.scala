@@ -5,7 +5,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -31,6 +30,8 @@ import sdk.metadata._
 import sdk.metadata.soapwriters._
 import sdk.driver._
 import sdk.messages._
+
+/**
 
 /**
  *  Run a "script" derived from JSON objects that creates, modifies or
@@ -281,8 +282,6 @@ object EntityScript {
  */
 abstract class ScriptExecutionEngine(config: Config, commands: Seq[EntityScript.CrmCommand]) {
 
-  import dispatch._
-  import Defaults._
   import CrmAuth._
   import httphelpers._
   import com.lucidchart.open.xtract._
@@ -402,3 +401,4 @@ class SoapScriptExecutionEngine(config: Config, commands: Seq[EntityScript.CrmCo
   //    type EvalContext = EvalContextDef
   //    case class EvalContextDef(state: Map[String, Any] = Map()) extends super.EvalContextDef
 }
+*/

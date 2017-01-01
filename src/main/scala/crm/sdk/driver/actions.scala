@@ -18,7 +18,6 @@ import javax.xml.xpath.XPathExpressionException;
 import org.apache.commons.codec.binary.Base64;
 import org.w3c.dom._
 import org.xml.sax.SAXException;
-import dispatch._, Defaults._
 import org.log4s._
 import com.lucidchart.open.xtract._
 import com.lucidchart.open.xtract.{ XmlReader, __ }
@@ -42,7 +41,7 @@ sealed trait CrmIOAction[+R] {
   def map[R2](f: R => R2)(implicit ec: ExecutionContext): CrmIOAction[R2] = flatMap[R2](r => SuccessAction[R2](f(r)))
 
   def flatMap[R2](f: R => CrmIOAction[R2])(implicit ec: ExecutionContext): CrmIOAction[R2] =
-    FlatMapAction[R2, R](this, f, executor)
+    FlatMapAction[R2, R](this, f, ec)
 
   def flatten[R2](implicit ev: R <:< CrmIOAction[R2]) = flatMap(ev)(CrmIO.sameThreadExecutionContext)
 

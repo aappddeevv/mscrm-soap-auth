@@ -3,7 +3,6 @@ package sdk
 package messages
 
 import scala.util.control.Exception._
-import dispatch._, Defaults._
 import java.util.Date;
 import cats._
 import data._

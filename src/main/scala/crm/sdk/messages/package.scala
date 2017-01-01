@@ -202,8 +202,8 @@ package object messages {
   }
 
   import com.lucidchart.open.xtract._
-  import com.ning.http.client._
   import httphelpers._
+  import org.asynchttpclient._
 
   /**
    * Process a response from an HTTP call. Performs application standard
@@ -242,6 +242,5 @@ package object messages {
         sleft(e)
     }
   }
-
 }
 

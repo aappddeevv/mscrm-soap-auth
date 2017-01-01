@@ -19,10 +19,10 @@
 	</appender>
 
 	<logger name="crm" level="debug" />
-	<logger name="org.asynchttpclient" level="error"/>
-    <logger name="io.netty" level="error"/>
-    <logger name="org.asynchttpclient.netty.handler.HttpHandler" level="error"/>
-	
+	<logger name="org.asynchttpclient" level="debug"/>
+	<logger name="io.netty" level="info"/>
+    <logger name="org.asynchttpclient.netty.handler.HttpHandler" level="debug"/>
+    <logger name="org.asynchttpclient.netty.channel.DefaultChannelPool" level="error"/>
     
 	<root level="${log.level:-ERROR}">
 		<appender-ref ref="FILE" />

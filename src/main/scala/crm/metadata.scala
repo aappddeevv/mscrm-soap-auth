@@ -4,7 +4,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -30,7 +29,7 @@ import sdk.soapreaders._
 import sdk.metadata.xmlreaders._
 import sdk._
 import sdk.httphelpers._
-
+/*
 object Metadata {
 
   private[this] implicit val logger = getLogger
@@ -78,3 +77,4 @@ object Metadata {
     }
   }
 }
+*/

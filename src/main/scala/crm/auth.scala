@@ -4,7 +4,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -31,7 +30,7 @@ import sdk.metadata.xmlreaders._
 import sdk._
 
 object Auth {
-
+/*
   private[this] implicit val logger = getLogger
 
   import scala.util.control.Exception._
@@ -39,7 +38,6 @@ object Auth {
   import scala.async.Async.{ async => sasync }
 
   def apply(config: Config): Unit = {
-    import Defaults._
 
     val who = scala.async.Async.async {
       println("Authenticating...")
@@ -58,7 +56,7 @@ object Auth {
     println("Obtaining WhoAmI...")
     catchTimeout("name") { Await.ready(who, config.timeout seconds) }
   }
-
+*/
   val whoAmIBodyTemplate =
     <request i:type="c:WhoAmIRequest" xmlns:b="http://schemas.microsoft.com/xrm/2011/Contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns:c="http://schemas.microsoft.com/crm/2011/Contracts">
       <b:Parameters xmlns:d="http://schemas.datacontract.org/2004/07/System.Collections.Generic"/>
@@ -66,12 +64,12 @@ object Auth {
       <b:RequestName>WhoAmI</b:RequestName>
     </request>
 
+/*
   /**
    * Issues a WhoAmI message versus just returning a SOAP request body.
    */
   def CrmWhoAmI(auth: CrmAuthenticationHeader, url: String): Future[String] = {
-    import Defaults._
-
+    
     //    val body = wrap(auth, whoAmIBodyTemplate).toString
     val body = executeTemplate(whoAmIBodyTemplate, Some(auth))
 
@@ -114,8 +112,7 @@ object Auth {
    * Get the user name given the user id GUID. Issues the call to the endpoint versus just returning a SOAP request body.
    */
   def CrmGetUserName(authHeader: CrmAuthenticationHeader, id: String, config: Config): Future[String] = {
-    import Defaults._
-
+    
     val body = executeTemplate(retrieveRequestTemplate("systemuser", id), Some(authHeader))
     Http(createPost(config) << body.toString OK as.xml.Elem) map { response =>
       val nodes = (response \\ "KeyValuePairOfstringanyType")
@@ -125,4 +122,6 @@ object Auth {
       }.sortBy(_._1).map(_._2).mkString(" ")
     }
   }
+  
+  */
 }

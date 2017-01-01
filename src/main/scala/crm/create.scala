@@ -4,7 +4,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -33,6 +32,7 @@ import sdk.httphelpers._
 
 object Create {
 
+  /*
   import sdk.metadata._
   import sdk._
 
@@ -170,5 +170,5 @@ object Create {
       Await.ready(fut, config.timeout seconds)
     }
   }
-
+*/
 }

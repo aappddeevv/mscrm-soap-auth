@@ -21,7 +21,6 @@ import scala.concurrent.ExecutionContext
 import org.apache.commons.codec.binary.Base64;
 import org.w3c.dom._
 import org.xml.sax.SAXException;
-import dispatch._, Defaults._
 import org.log4s._
 import com.lucidchart.open.xtract._
 import com.lucidchart.open.xtract.{ XmlReader, __ }
@@ -34,7 +33,6 @@ import cats.implicits._
 import cats.syntax._
 import sdk.driver.CrmException
 import fs2._
-import dispatch.retry._
 import metadata._
 
 import sdk.messages._
@@ -43,6 +41,7 @@ import httphelpers._
 
 object soapwriters {
 
+  
   private[this] lazy val logger = getLogger
 
   def retrieveEntityRequestTemplate(entity: String, entityFilter: Seq[String], retieveAsIfPublished: Boolean = true) =
@@ -87,6 +86,7 @@ object soapwriters {
     messages.soaprequestwriters.executeTemplate(r)
   }
 
+  /*
   /**
    *  Issue http request to obtain entity metadata.
    */
@@ -151,4 +151,5 @@ object soapwriters {
     entityMetadataFromCache(webAppUrl) recoverWith
       { case _ => requestEntityMetadata(Http, orgAuth, Some(webAppUrl))(ec, reader) }
 
+*/
 }

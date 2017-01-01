@@ -4,7 +4,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -46,88 +45,55 @@ object Test {
    */
   def apply(config: Config): Unit = {
 
-    import Defaults._
+    //    println("Find discovery URL given a region")
+    //    val x = regionToDiscoveryUrl.get(config.region)
+    //    x match {
+    //      case Some(url) => println(s"Discovery URL for region ${config.region} is $url")
+    //      case None => println(s"Unable to find discovery url for region abbrev ${config.region}")
+    //    }
+    //    val discoveryUrl = x.get
 
-    val http = httphelpers.client(120)
-
-    println("Get discovery auth and URL")
-    val f1 = discoveryAuth(http, config.username, config.password, config.region).
-      andThen { result =>
-        result match {
-          case Success(xor) => xor match {
-            case Right(result) => println(s"Result: $result")
-            case Left(err) => println(s"Error: $err")
-          }
-          case Failure(ex) => println(s"Failed: $ex")
-        }
-      }
-    val discAuth = Await.result(f1, config.timeout seconds).getOrElse(CrmAuthenticationHeader())
-
-    println("Find discovery URL given a region")
-    val x = regionToDiscoveryUrl.get(config.region)
-    x match {
-      case Some(url) => println(s"Discovery URL for region ${config.region} is $url")
-      case None => println(s"Unable to find discovery url for region abbrev ${config.region}")
-    }
-    val discoveryUrl = x.get
-
-    println("Get org services auth and URL")
-    val f2 = orgServicesAuth(http, discAuth, config.username, config.password, config.url, config.region).
-      andThen { result =>
-        result match {
-          case Success(xor) => xor match {
-            case Right(result) => println(s"Result: $result")
-            case Left(err) => println(s"Error: $err")
-          }
-          case Failure(ex) => println(s"Failed: $ex")
-        }
-      }
-    val orgSvcAuth = Await.result(f2, config.timeout seconds).getOrElse(CrmAuthenticationHeader())
-
+    import scala.concurrent.ExecutionContext.Implicits.global
     import discovery.soapreaders._
+    import crm.sdk.client._
 
-    println("Get endpoints")
-    val f3 = requestEndpoints(http, discAuth).
-      andThen { result =>
-        result match {
-          case Success(xor) => xor match {
-            case Right(endpoints) => endpoints.foreach { ep =>
-              println(s"Org: $ep")
-            }
-            case Left(err) => println(s"Error: $err")
-          }
-          case Failure(ex) => println(s"Failed: $ex")
-        }
-      }
-    Await.ready(f3, config.timeout seconds)
-
-    /*
-    println("Get entity metadata, this could take awhile...")
-    import sdk.metadata._
-    import sdk.metadata.xmlreaders._
-    val f4 = requestEntityMetadata(http, orgSvcAuth).andThen { result =>
-      result match {
-        case Success(xor) => xor match {
-          case Right(result) => println(s"# entities: ${result.entities.length}")
-          case Left(err) => println(s"Error: $err")
-        }
-        case Failure(ex) => println(s"Failed: $ex")
-      }
+    nonFatalCatch withApply { t =>
+      println("Error occurred most likely creating discovery client:\n" + t)
+    } apply {
+      val dclient = DiscoveryCrmClient.fromConfig(config)
+      println("Get endpoints")
+      val endpointsTask = requestEndpoints(dclient)
+      endpointsTask.unsafeAttemptRun.fold(
+        t => println("Error obtaining enpdoints:\n${t}"),
+        endpoints => endpoints.foreach(ep => println(s"Org: $ep")))
+      dclient.shutdownNow()
     }
-    Await.ready(f4, 10 * config.timeout seconds)
-*/
 
-    println("Find org services URL from web app url and region")
-    val f5 = orgServicesUrl(Http, discAuth, config.url).andThen { result =>
-      result match {
-        case Success(xor) => xor match {
-          case Right(result) => println(result)
-          case Left(err) => println(s"Error: $err")
-        }
-        case Failure(ex) => println(s"Failed $ex")
-      }
-    }
-    Await.ready(f5, config.timeout seconds)
+    //    println("Get entity metadata, this could take awhile...")
+    //    import sdk.metadata._
+    //    import sdk.metadata.xmlreaders._
+    //    val f4 = requestEntityMetadata(http, orgSvcAuth).andThen { result =>
+    //      result match {
+    //        case Success(xor) => xor match {
+    //          case Right(result) => println(s"# entities: ${result.entities.length}")
+    //          case Left(err) => println(s"Error: $err")
+    //        }
+    //        case Failure(ex) => println(s"Failed: $ex")
+    //      }
+    //    }
+    //    Await.ready(f4, 10 * config.timeout seconds)
+
+    //    println("Find org services URL from web app url and region")
+    //    val f5 = orgServicesUrl(Http, discAuth, config.url).andThen { result =>
+    //      result match {
+    //        case Success(xor) => xor match {
+    //          case Right(result) => println(result)
+    //          case Left(err) => println(s"Error: $err")
+    //        }
+    //        case Failure(ex) => println(s"Failed $ex")
+    //      }
+    //    }
+    //    Await.ready(f5, config.timeout seconds)
     /*
   println("Testing WhoAmI across all orgs using discovery tokens!...this could take awhile")
  
@@ -157,31 +123,6 @@ object Test {
     println(whosoutput)
  */
 
-    println("Testing dispatch client.")
-    import sdk.driver._
-    import sdk.messages._
-
-    val client = DispatchClient.fromConfig(config)
-    val req = WhoAmIRequest()
-    val fut = client.execute(req) //.map { e =>
-    //      e match {
-    //        case Right(eresult) =>
-    //          "done"
-    //        case Left(err) =>
-    //          s"Error: $toUserMessage(err)}"
-    //      }
-    //    }
-    val who = fut.value.unsafeRun()
-    who match { 
-      case Right(r) =>
-            println(s"""guid who: ${r.results.getAs[TypedServerValue]("UserId").map(_.text).getOrElse("no guid user id found")}""")
-      case Left(err) =>
-        println(s"Error: ${toUserMessage(err)}")
-    }
-    client.shutdownNow()
-    
-    http.shutdown
-    Http.shutdown
   }
 
 }

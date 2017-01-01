@@ -4,7 +4,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -43,6 +42,7 @@ import java.util.concurrent.Executors
 import java.nio.file._
 import sdk.metadata.soapwriters._
 
+/*
 object Query {
 
   import sdk.metadata._
@@ -274,7 +274,7 @@ object Query {
   def apply(config: Config): Unit = {
 
     /** Acquire an http client inside an effect (a task). */
-    def acquire = Task.delay(client(config.timeout))
+    def acquire = Task.delay(httphelpers.client(config.timeout))
 
     config.queryType match {
 
@@ -494,7 +494,7 @@ object Query {
         val initialState = (Option(PagingInfo(page = 1, returnTotalRecordCount = true, count = 0)), true)
         val bits = List(StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
 
-        // For the moment this is overkill, but we want to be able to parallelise this. */
+        // For the moment this is overkill, but we want to be able to parallelise this. 
         def output(http: HttpExecutor): Stream[Task, Stream[Task, String]] =
           fs2.Stream.eval(Task.fromFuture(orgAuthF)).flatMap { orgAuth =>
             val schemaTask = Task.fromFuture(entityMetadata(http, orgAuth, config.url))
@@ -586,3 +586,4 @@ object Query {
     }
   }
 }
+*/

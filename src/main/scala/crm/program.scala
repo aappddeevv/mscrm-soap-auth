@@ -4,7 +4,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -29,15 +28,19 @@ import sdk.messages.soaprequestwriters._
 import sdk.soapreaders._
 import sdk.metadata.xmlreaders._
 import sdk._
+import java.time._
+import java.time.temporal._
+import crm.sdk.client._
 
 case class Config(
   /** Duration of an authorization in minutes. */
-  leaseTime: Int = 120,
+  leaseTimeInMin: Int = 120,
   /**
    * % of leasTime that an auth is renewed. This gives time for the auth
    *  to be generated because it takes time to generate and receive an auth.
    */
   leaseTimeRenewalFraction: Double = 0.9,
+  /** Show help. */
   help: Boolean = false,
   /**
    * Web app url for CRM online.
@@ -49,8 +52,12 @@ case class Config(
    * orgs within a region that you can connect to.
    */
   region: String = Option(System.getenv.get("REGION")).getOrElse("NA"),
+  /** Username */
   username: String = Option(System.getenv.get("USERNAME")).getOrElse(""),
+  /** Password */
   password: String = Option(System.getenv.get("PASSWORD")).getOrElse(""),
+  /** Authentication model. */
+  auth: AuthenticationProviderType = Online,
   /**
    * Timeout to wait for an individual remote request.
    */
@@ -74,18 +81,22 @@ case class Config(
   /** Comnand to run for entity scripts. */
   entityCommand: String = "runCommands",
   /** Sychronous callback. */
-  commandCallback: (Map[String, Any], Map[String, Any]) => Either[String, Map[String, Any]] = (ctx, cctx) => Right(ctx),
+  commandCallback: (Map[String, Any], Map[String, Any]) => Either[String, Map[String, Any]] = (ctx, cctx) => Right(ctx)
   /** Hook prior to running a command. */
-  commandPre: (EntityScript.CrmCommand, Map[String, Any]) => (EntityScript.CrmCommand, Map[String, Any]) = (x, y) => (x, y),
+  //,commandPre: (EntityScript.CrmCommand, Map[String, Any]) => (EntityScript.CrmCommand, Map[String, Any]) = (x, y) => (x, y)
   /** Hook post to running a command. */
-  commandPost: (EntityScript.CrmCommand, Map[String, Any]) => Map[String, Any] = (x, y) => y,
+  //commandPost: (EntityScript.CrmCommand, Map[String, Any]) => Map[String, Any] = (x, y) => y,
   /** JSON command file. */
-  commandFile: String = "commands.json",
+  ,commandFile: String = "commands.json",
   //connectionPoolIdelTimeoutInSec: Int = 5*60,
+  /** Amount of concurrency e.g. # of operations to try at the same time. */
   concurrency: Int = 2,
   pconcurrency: Int = 5,
-  parallelism: Int = 16,
-  httpRetrys: Int = 10,
+  /** Default parallelism. This is used to set the number of threads. */
+  parallelism: Int = 8,
+  /** Number of retrys if a HTTP request fails to execute correctly. */
+  httpRetrys: Int = 5,
+  /** Pause between retries. See httpRetrys. */
   pauseBetweenRetriesInSeconds: Int = 30,
   ignoreKeyFiles: Boolean = false,
   keyfileChunkFetchSize: Int = 5000,
@@ -129,12 +140,12 @@ case class Dump(entity: String = "",
    * Run an Entity (a record) through a processor that could
    *  transform it in some way.
    */
-  recordProcessor: fs2.Pipe[Task, (sdk.Entity, Int), (sdk.Entity, Int)] = fs2.pipe.id,
+  recordProcessor: fs2.Pipe[Task, (sdk.Entity, Int), (sdk.Entity, Int)] = fs2.pipe.id
   /**
    * Convert a record from CRM (an Entity) into an output string suitable
    *  for whatever output format you want.
    */
-  toOutputProcessor: fs2.Pipe[Task, sdk.Entity, String] = defaultMakeOutputRow // Traversable[String] => fs2.Pipe[Task, sdk.Entity, String] = defaultMakeOutputRow _)
+  //,toOutputProcessor: fs2.Pipe[Task, sdk.Entity, String] = defaultMakeOutputRow // Traversable[String] => fs2.Pipe[Task, sdk.Entity, String] = defaultMakeOutputRow _)
   )
 
 object program {
@@ -162,13 +173,17 @@ object program {
       .action((x, c) => c.copy(password = x))
     opt[Int]('t', "timeout").valueName("<number>").text(s"Timeout in seconds for each request. Default is ${defaultConfig.timeout}")
       .action((x, c) => c.copy(timeout = x))
-    opt[Int]("auth-lease-time").text(s"Auth lease time in minutes. Default is ${defaultConfig.leaseTime}")
-      .action((x, c) => c.copy(leaseTime = x))
+    opt[Int]("auth-lease-time").text(s"Auth lease time in minutes. Default is ${defaultConfig.leaseTimeInMin}")
+      .action((x, c) => c.copy(leaseTimeInMin = x))
     opt[Double]("renewal-quantum").text(s"Renewal fraction of leaseTime. Default is ${defaultConfig.leaseTimeRenewalFraction}")
       .action((x, c) => c.copy(leaseTimeRenewalFraction = x))
     //    opt[Int]("connectionPoolIdelTimeoutInSec").text(s"If you get idle timeouts, make this larger. Default is ${defaultConfig.connectionPoolIdelTimeoutInSec}").
     //      action((x, c) => c.copy(connectionPoolIdelTimeoutInSec = x))
 
+    opt[Unit]("authonline").text("CRM Online authentication.")
+      .action((x, c) => c.copy(auth = Online))
+    opt[Unit]("authifd").text("CRM IFD On Prem authentication.")
+      .action((x, c) => c.copy(auth = Federation))
     opt[Int]("parallelism").text("Parallelism.").
       validate(con =>
         if (con < 1 || con > 32) failure("Parallelism must be between 1 and 32")
@@ -239,7 +254,7 @@ object program {
         opt[String]("list-endpoints").valueName("<region abbrev>").optional().text("List the specific orgs given a specific region and username/pasword. Default region is NA.")
           .action((x, c) => c.copy(region = x, discoveryAction = "listEndpoints")))
 
-    note("You only need a username/password and discovery URL for the region to run a discovery command.")
+    note("You only need a username/password and discovery URL or the region to run a discovery command.")
     note("")
 
     cmd("entity").action((_, c) => c.copy(mode = "entity")).
@@ -383,23 +398,24 @@ object program {
 
     val config = parser.parse(args, defaultConfig) match {
       case Some(c) => c
-      case None => Http.shutdown; return
+      case None => return//Http.shutdown; return
     }
-    import java.time._
-    import java.time.temporal._
-
+    
+    
     val start = Instant.now
     println(s"Program start: ${instantString}")
     try {
       config.mode match {
-        case "discovery" => Discovery(config)
-        case "auth" => Auth(config)
-        case "metadata" => Metadata(config)
-        case "create" => Create(config)
-        case "query" => Query(config)
-        case "entity" => EntityScript(config)
+//        case "discovery" => Discovery(config)
+//        case "auth" => Auth(config)
+//        case "metadata" => Metadata(config)
+//        case "create" => Create(config)
+//        case "query" => Query(config)
+//        case "entity" => EntityScript(config)
         case "test" => Test(config)
-        case "copy" => Copy(config)
+//        case "copy" => Copy(config)
+        case _ =>
+          println("Unknown command.")
       }
     } catch {
       case scala.util.control.NonFatal(e) =>
@@ -407,11 +423,11 @@ object program {
         println("An unexpected and non-recoverable error during processing. Processing has stopped.")
         println("Error: " + e.getMessage)
     } finally {
-      Http.shutdown
+      //Http.shutdown
     }
     val stop = Instant.now
     println(s"Program stop: ${instantString}")
-    val elapsed = Duration.between(start, stop)
+    val elapsed = java.time.Duration.between(start, stop)
     println(s"Program runtime in minutes: ${elapsed.toMinutes}")
     println(s"Program runtime in seconds: ${elapsed.toMillis / 1000}")
   }
@@ -419,7 +435,7 @@ object program {
   /**
    * Create a post request from a config object.
    */
-  def createPost(config: Config): Req = crm.sdk.httphelpers.createPost(config.url)
+  //def createPost(config: Config): Req = crm.sdk.httphelpers.createPost(config.url)
 }
 
 object utils {

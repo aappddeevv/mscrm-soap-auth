@@ -80,5 +80,5 @@ errors and and built out some nascent capabilities.
 Miscellaneous notes:
 * DDL generation library: Looked at empire-db and ddlutils but both are embedded and
 specialized for their respective parent packages. Other packages
-are available but are not cleanly separable from their parent packages. Had to role my own. 
+are available but are not cleanly separable from their parent packages. Had to roll my own. 
 

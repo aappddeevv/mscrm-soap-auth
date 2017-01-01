@@ -5,7 +5,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -44,7 +43,7 @@ import _root_.io.circe._
 import _root_.io.circe.syntax._
 
 object Copy {
-
+/*
   private[this] implicit val logger = getLogger
 
   def apply(config: Config): Unit = {
@@ -447,5 +446,5 @@ object Copy {
         throw new RuntimeException(s"Unhandled attribute metadata $x")
     }
   }
-
+*/
 }

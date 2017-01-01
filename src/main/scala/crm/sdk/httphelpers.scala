@@ -3,7 +3,8 @@ package sdk
 
 import scala.language._
 import scala.util.control.Exception._
-import dispatch._, Defaults._
+//import dispatch._, Defaults._
+import scala.concurrent._
 import java.util.Date;
 import cats._
 import cats.data._
@@ -18,43 +19,46 @@ import com.lucidchart.open.xtract.XmlReader._
 import com.lucidchart.open.xtract._
 import play.api.libs.functional.syntax._
 import scala.language.implicitConversions
+import org.asynchttpclient._
 
 trait httphelpers {
   private[this] lazy val logger = getLogger
 
   /**
+   * /**
    * Create a new dispatch http client that honors the config parameters. Do not
    * forget to shut it down after using it.
    * @deprecated
-   */
-  def client(config: Config) = Http.configure { builder =>
-    builder.setRequestTimeoutInMs(config.timeout * 1000)
-    builder.setFollowRedirects(true)
-    builder.setAllowPoolingConnection(true)
-    builder.setCompressionEnabled(true)
-    builder.setRequestCompressionLevel(9)
-    builder
-  }
-
-  /**
+   * */
+   * def client(config: Config) = Http.configure { builder =>
+   * builder.setRequestTimeoutInMs(config.timeout * 1000)
+   * builder.setFollowRedirects(true)
+   * builder.setAllowPoolingConnection(true)
+   * builder.setCompressionEnabled(true)
+   * builder.setRequestCompressionLevel(9)
+   * builder
+   * }
+   *
+   * /**
    * Create a new asynchttpclient. You should probably let the client select
    * its own thread pool.
+   * */
+   * def client(timeoutInSeconds: Int,
+   * connectionPoolIdelTimeoutInSec: Int = 120,
+   * ec: Option[java.util.concurrent.ExecutorService] = None) = Http.configure { builder =>
+   * builder.setRequestTimeoutInMs(timeoutInSeconds * 1000)
+   * builder.setFollowRedirects(true)
+   * builder.setAllowPoolingConnection(true)
+   * builder.setCompressionEnabled(true)
+   * builder.setRequestCompressionLevel(9)
+   * ec.foreach(builder.setExecutorService(_))
+   * builder.setMaxRequestRetry(5)
+   * builder.setIdleConnectionTimeoutInMs(5 * 60 * 1000)
+   * builder.setIdleConnectionInPoolTimeoutInMs(5 * 60 * 1000)
+   * //builder.setIdleConnectionInPoolTimeoutInMs(connectionPoolIdelTimeoutInSec*1000)
+   * builder
+   * }
    */
-  def client(timeoutInSeconds: Int,
-    connectionPoolIdelTimeoutInSec: Int = 120,
-    ec: Option[java.util.concurrent.ExecutorService] = None) = Http.configure { builder =>
-    builder.setRequestTimeoutInMs(timeoutInSeconds * 1000)
-    builder.setFollowRedirects(true)
-    builder.setAllowPoolingConnection(true)
-    builder.setCompressionEnabled(true)
-    builder.setRequestCompressionLevel(9)
-    ec.foreach(builder.setExecutorService(_))
-    builder.setMaxRequestRetry(5)
-    builder.setIdleConnectionTimeoutInMs(5 * 60 * 1000)
-    builder.setIdleConnectionInPoolTimeoutInMs(5 * 60 * 1000)
-    //builder.setIdleConnectionInPoolTimeoutInMs(connectionPoolIdelTimeoutInSec*1000)
-    builder
-  }
 
   /**
    * Handler for catching a future TimeoutException. Can be composed with other
@@ -114,7 +118,7 @@ trait httphelpers {
   /** Generate a message id SOAP element. Namespace a must map to Contracts. */
   def messageIdEl() = <a:MessageID>urn:uuid:{ java.util.UUID.randomUUID() }</a:MessageID>
 
-  import com.ning.http.client._
+  //import com.ning.http.client._
 
   /** Hash a string consistently in this app. */
   def hash(value: String): String = getSHA256Hash(value)
@@ -143,9 +147,12 @@ trait httphelpers {
     logger.debug(s"Cache created: $filename")
   }
 
+  /*
   /** Create a POST SOAP request. */
   def createPost(url: String): Req = dispatch.url(endpoint(url)).secure.POST.setContentType("application/soap+xml", "utf-8")
+*/
 
+  /*
   /**
    * Allows you to use `Http(req OkWithBody as.xml.Elem)` to obtain
    * the result as an Elem if successful or a ApiHttpError, if an error
@@ -155,6 +162,7 @@ trait httphelpers {
     def OKWithBody[T](f: Response => T) =
       (req.toRequest, new OkWithBodyHandler(f))
   }
+  */
 
   /** Automatically unwrap an ExecutionException to get to the inner exception. */
   implicit class EnhancedFuture[A](fut: scala.concurrent.Future[A]) {
@@ -162,14 +170,14 @@ trait httphelpers {
      * Unwrap an exception in the Future if its an ExecutionException,
      * otherwise leave the exception alone.
      */
-    def unwrapEx: Future[A] =
+    def unwrapEx(implicit ec: ExecutionContext): Future[A] =
       fut.recoverWith {
         case x: java.util.concurrent.ExecutionException => Future.failed(x.getCause)
         case x@_ => Future.failed(x)
       }
   }
 
-  import com.ning.http.client._
+  //import com.ning.http.client._
 
   /**
    * Apply Response transforming function to the response but return an ApiHttpError
@@ -190,10 +198,11 @@ trait httphelpers {
    * Having the response and response body may allow you to diagnose the bad response
    * faster and easier.
    */
-  case class ApiHttpError(code: Int, response: com.ning.http.client.Response)
-    extends Exception("Unexpected response status: %d".format(code))
+  case class ApiHttpError(code: Int, response: Response)
+    extends Exception("Unexpected http response status: %d".format(code))
 
-  /** Convert a dispatch Response to XML or a ResponseError. No logging occurs if there
+  /**
+   * Convert a dispatch Response to XML or a ResponseError. No logging occurs if there
    *  is an error
    */
   def responseToXml(response: Response): Either[ResponseError, xml.Elem] = {
@@ -245,17 +254,19 @@ trait httphelpers {
   }
 
   /** Allows OKThenParse to be used in the HttpExecutor fluently. */
-  implicit class MyParsingRequestHandlerTupleBuilder(req: Req) {
+  implicit class MyParsingRequestHandlerTupleBuilder(req: Request) {
     def OKThenParse[T](implicit reader: XmlReader[T], logger: Logger) =
-      (req.toRequest, new OkThenParse()(reader, logger))
+      (req, new OkThenParse()(reader, logger))
   }
 
-  /** Pipe version of an http executor. */
-  def makeRequest(http: HttpExecutor)(implicit s: Strategy,
-    ec: scala.concurrent.ExecutionContext): Pipe[Task, Req, Task[Response]] =
-    pipe.lift { req =>
-      Task.fromFuture(http(req))
-    }
+  /**
+   * /** Pipe version of an http executor. */
+   * def makeRequest(http: HttpExecutor)(implicit s: Strategy,
+   * ec: scala.concurrent.ExecutionContext): Pipe[Task, Req, Task[Response]] =
+   * pipe.lift { req =>
+   * Task.fromFuture(http(req))
+   * }
+   */
 
   /** Auto convert parse result to an Either. */
   implicit class ParseResultToEither[A](p: ParseResult[A]) {

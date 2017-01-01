@@ -14,12 +14,11 @@ import javax.xml.bind.DatatypeConverter;
 import javax.xml.parsers._
 import javax.xml.xpath.XPathExpressionException;
 import scala.concurrent.duration._
-import scala.concurrent.ExecutionContext
+import scala.concurrent._
 
 import org.apache.commons.codec.binary.Base64;
 import org.w3c.dom._
 import org.xml.sax.SAXException;
-import dispatch._, Defaults._
 import org.log4s._
 import com.lucidchart.open.xtract._
 import com.lucidchart.open.xtract.{ XmlReader, __ }
@@ -32,11 +31,13 @@ import cats.implicits._
 import cats.syntax._
 import sdk.driver.CrmException
 import fs2._
-import dispatch.retry._
 import metadata._
+import crm.sdk.driver._
+import org.asynchttpclient._
 
 import soapnamespaces._
 
+/** This move to a sub-package. */
 trait CrmAuth {
 
   import httphelpers._
@@ -62,16 +63,17 @@ trait CrmAuth {
    * @param password
    * @param urn Not the web app URL, but a URN for the country.
    * @param leaseTimeInMin Lease time for the security header.
+   * @param target The target for the message (the <To> element).
    */
-  def securityHeaderOnlineEnvelopeTemplate(username: String, password: String,
-    urn: String, leaseTimeInMin: Int = 120) = {
+  private def securityHeaderOnlineEnvelopeTemplate(username: String, password: String,
+    urn: String, leaseTimeInMin: Int = 120, target: String = "https://login.microsoftonline.com/RST2.srf") = {
     val ts = timestamp(leaseTimeInMin)
     <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
       <s:Header>
         <a:Action s:mustUnderstand="1">http://schemas.xmlsoap.org/ws/2005/02/trust/RST/Issue</a:Action>
         { messageIdEl }
         <a:ReplyTo><a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address></a:ReplyTo>
-        <a:To s:mustUnderstand="1">https://login.microsoftonline.com/RST2.srf</a:To>
+        <a:To s:mustUnderstand="1">{ target }</a:To>
         <o:Security s:mustUnderstand="1" xmlns:o="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
           <u:Timestamp u:Id="_0">
             <u:Created>{ ts._1 }</u:Created>
@@ -94,9 +96,9 @@ trait CrmAuth {
         </trust:RequestSecurityToken>
       </s:Body>
     </s:Envelope>
-
   }
 
+  /*
   /**
    * Issue a CRM Online SOAP authentication request. Since this is so fundamental,
    * an exception is thrown if an error occurs. Retrys are attempted. This method
@@ -121,15 +123,11 @@ trait CrmAuth {
 
     val urnAddress = urlToUrn(url)
     val xml = securityHeaderOnlineEnvelopeTemplate(username, password, urnAddress, leaseTime)
-  
-    // could use url("https://...")
+
     val svchost =
       (host("login.microsoftonline.com").secure / "RST2.srf")
         .POST
         .setContentType("application/soap+xml", "UTF-8") << xml.toString
-
-    logger.debug("GetHeaderOnline:request: " + xml)
-    logger.debug("GetHeaderOnline:request: " + svchost.toRequest)
 
     def makeAuthRequest() = {
       logger.debug("GetHeaderOnline:request: " + xml)
@@ -152,8 +150,11 @@ trait CrmAuth {
           val tokenExpires = tokenExpiresElements(0).text
 
           val c = DatatypeConverter.parseDateTime(tokenExpires)
-          CrmAuthenticationHeader(/*CreateSoapHeader(url, keyIdentifer, token1, token2), */
-              keyIdentifer, token1, token2, c.getTime(), url)
+          CrmAuthenticationHeader(
+            c.getTime(),
+            crm.sdk.messages.soaprequestwriters.soapSecurityHeaderTemplate(url, keyIdentifer, token1, token2),
+            keyIdentifer, token1, token2, c.getTime(), url)
+            
         } catch {
           case scala.util.control.NonFatal(e) =>
             logger.error(e)("Unable to obtain auth, error during parsing XML")
@@ -162,15 +163,185 @@ trait CrmAuth {
       }.either
     }
 
-    retry.Pause(numRetrys, pauseInSeconds.seconds)(() => makeAuthRequest()).map {
-      _ match {
-        case Right(auth) => auth
-        case Left(err) =>
-          logger.error(err)("Error obtaining auth")
-          throw err
+    //    retry.Pause(numRetrys, pauseInSeconds.seconds)(() => makeAuthRequest()).map {
+    //      _ match {
+    //        case Right(auth) => auth
+    //        case Left(err) =>
+    //          logger.error(err)("Error obtaining auth")
+    //          throw err
+    //      }
+    //    }
+    makeAuthRequest()
+  }
+  */
+
+  private def onPremAuthTemplate(username: String, password: String, urn: String, leaseTimeInMin: Int = 60, target: String) = {
+    val now = new Date();
+    val gmtTZ = TimeZone.getTimeZone("GMT")
+    val formatter = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSSS")
+    formatter.setTimeZone(gmtTZ)
+
+    <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
+      <s:Header>
+        <a:Action s:mustUnderstand="1">http://docs.oasis-open.org/ws-sx/ws-trust/200512/RST/Issue</a:Action>
+        { messageIdEl }
+        <a:ReplyTo>
+          <a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address>
+        </a:ReplyTo>
+        <Security s:mustUnderstand="1" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" xmlns="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+          <u:Timestamp u:Id={ java.util.UUID.randomUUID().toString }>
+            <u:Created>{ formatter.format(now) + "Z" }</u:Created>
+            <u:Expires>{ formatter.format(AddMinutes(leaseTimeInMin, now)) + "Z" }</u:Expires>
+          </u:Timestamp>
+          <UsernameToken u:Id={ java.util.UUID.randomUUID().toString }>
+            <Username>{ username }</Username>
+            <Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">{ password }</Password>
+          </UsernameToken>
+        </Security>
+        <a:To s:mustUnderstand="1">{ target }</a:To>
+      </s:Header>
+      <s:Body>
+        <trust:RequestSecurityToken xmlns:trust="http://docs.oasis-open.org/ws-sx/ws-trust/200512">
+          <wsp:AppliesTo xmlns:wsp="http://schemas.xmlsoap.org/ws/2004/09/policy">
+            <a:EndpointReference>
+              <a:Address>{ urn }</a:Address>
+            </a:EndpointReference>
+          </wsp:AppliesTo>
+          <trust:RequestType>http://docs.oasis-open.org/ws-sx/ws-trust/200512/Issue</trust:RequestType>
+        </trust:RequestSecurityToken>
+      </s:Body>
+    </s:Envelope>
+  }
+
+  /**
+   * Obtain a CRM On Premise SOAP header & expiration for a specific URL endpoint.
+   *
+   * @param username username (typically userid@someorg.yourcrmdomain)
+   * @param password password
+   * @param http A Service that can convert Requests into XML response elements.
+   * @param leaseTime Lease time in minutes requested for the returned token.
+   * @param url A services URL e.g. discovery service or organization data service. See CRM's "Developer Resources" for the specific URLs.
+   */
+  def GetHeaderOnPremise(username: String,
+    password: String, url: String, http: Service[Request, scala.xml.Elem],
+    leaseTimeInMin: Int = 120)(implicit ec: ExecutionContext): Task[CrmOnPremAuthenticationHeader] = {
+
+    val formatter = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSSS")
+    //    val modurl =
+    //      if (!url.endsWith("/")) url + "/";
+    //      else url
+    //
+    val urnAddress = url //modurl + "XRMServices/2011/Organization.svc";
+    //String usernamemixed = adfsUrl + "/trust/13/usernamemixed";
+
+    def makeAuthRequest() = {
+      getAdfs(url, http).flatMap { adfsUrl =>
+        val usernamemixed = adfsUrl + "/13/usernamemixed";
+        logger.debug("get auth IFD");
+        logger.debug("urnAddress   : " + urnAddress);
+        logger.debug("usernamemixed: " + usernamemixed);
+
+        val xml = onPremAuthTemplate(username, password, urnAddress, leaseTimeInMin = leaseTimeInMin, usernamemixed)
+        // this did not work!
+        //val xml = securityHeaderOnlineEnvelopeTemplate(username, password, urnAddress, leaseTimeInMin = leaseTimeInMin, usernamemixed)
+
+        val req = new RequestBuilder("POST")
+          .setUrl(usernamemixed)
+          .setBody(xml.toString)
+          .addHeader("Content-Type", "application/soap+xml; charset=UTF-8")
+          .build()
+
+        //        logger.debug("GetHeaderOnPremise:request: " + req.toString)
+
+        http(req).map { xml =>
+          //          logger.debug("GetHeaderOnline:response: " + xml)
+
+          val faultNode = xml \\ "Fault" // not already detected,see svc
+          if (!faultNode.isEmpty) {
+            // Get the message and throw an exception.
+            val msg = (faultNode \\ "Reason" \\ "Text").text
+            throw new HandlerError(NonEmptyList.of(msg))
+          }
+
+          CrmOnPremAuthenticationHeader(
+            null,
+            crm.sdk.messages.hack.GetHeaderOnPremise(xml.toString, "blah"),
+            url, null, null, null,
+            null, null,
+            null, null, null, null)
+        }
       }
     }
+    makeAuthRequest()
+  }
 
+  def test1() = {
+    import cats._, data._, implicits._
+    import fs2.interop.cats._
+    import scala.concurrent.ExecutionContext.Implicits.global
+    import crm.sdk.client._
+
+    val config = Config(
+      //url = "https://crmdemo.demo.local:444/XRMServices/2011/Organization.svc",
+      url = "https://dev.demo.local:444/XRMServices/2011/Discovery.svc",
+      auth = crm.sdk.client.Federation,
+      username = "crmuser@demo.local",
+      password = "crmuser",
+      httpRetrys = 1, pauseBetweenRetriesInSeconds = 1)
+    val client = DiscoveryCrmClient.fromConfig(config)
+    //val client = OrganizationCrmClient.fromConfig(config)
+
+    //val svc = conn.toHttpService(toXml.run)
+
+    // couple of tests
+    //val x = getAdfs(config.url, svc)
+    // get auth
+    //val x = GetHeaderOnPremise("crmuser@demo.local", "crmuser", config.url, svc, config.leaseTimeInMin)
+    //val x = null
+
+    //    import crm.sdk._
+    //    val client = OrganizationCrmClient.fromConfig(config)
+    //    val r = client.request.withBody(crm.sdk.messages.soaprequestwriters.whoAmIRequestTemplate)
+    //    import crm.sdk.driver._, fs2._, fs2.interop.cats._, crm.sdk.messages.soaprequestwriters._
+    //    val result = client.fetch(r)(x => Task.now(x)).unsafeRun
+    //    println("whoamiresult: " + result)    
+
+    client
+  }
+
+  /**
+   * Obtain the ADFS server from the discovery WSDL.
+   *
+   * Org and Dis services have a different WSDL access query parameter.
+   * wsdl0 works for Org to get the ADFS server, but wsdl1 works for Dis.
+   * Hence, the only save bet is singleWdl
+   *
+   * @param url Discovery or Org data services URL e.g. has a XrmServices path segment in it.
+   * @param http Http service.
+   */
+  def getAdfs(url: String, http: Service[Request, scala.xml.Elem])(implicit ec: ExecutionContext): Task[String] = {
+    //    val WsdlURL =
+    //      if (url.toLowerCase.contains("xrmservices")) url
+    //      else url + "/XrmServices/2011/Discovery.svc?wsdl=wsdl1" // was ?wsdl=wsdl0, (or 1) was Organization.svc
+    //val WsdlURL = url + "?wsdl=wsdl0"
+    val WsdlURL = url + "?singleWsdl"
+    logger.debug("getAdfs:wsdlurl: " + WsdlURL)
+    val req = new RequestBuilder()
+      .setUrl(WsdlURL)
+      .setBody("")
+      .build
+
+    def mkRequest() = {
+      http(req).map { xml =>
+        logger.debug("getADFS response: " + xml)
+        val url = (xml \\ "Identifier").text.replace("http://", "https://")
+        if (url.length == 0)
+          throw new HandlerError(NonEmptyList.of("The response did not include the ADFS identifier."))
+        logger.debug("adfs location: " + url)
+        url
+      }
+    }
+    mkRequest()
   }
 
   /**
@@ -187,60 +358,30 @@ trait CrmAuth {
    * @param token2
    *            The second token from the initial request..
    */
+  /*
   def CreateSoapHeader(toUrl: String, keyIdentifier: String, token1: String, token2: String) = {
     <s:Header>
       { CreateExecuteHeaders(toUrl) }
       { soapSecurityHeaderTemplate(keyIdentifier, token1, token2) }
     </s:Header>
   }
+  */
 
-  /**
-   *  Create standard IOrganization service execute headers. Does *not* include security header.
-   *  Requires 'a' NS to be http://www.w3.org/2005/08/addressing?
-   */
-  def CreateExecuteHeaders(toUrl: String): xml.NodeSeq = {
-    <a:Action s:mustUnderstand="1">http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute</a:Action>
-    <a:ReplyTo><a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address></a:ReplyTo>
-    <a:To s:mustUnderstand="1">{ endpoint(toUrl) }</a:To> ++ { messageIdEl() }
-  }
-
-  /**
-   * Create a MS CRM SOAP security header.
-   */
-  def soapSecurityHeaderTemplate(auth: CrmAuthenticationHeader): xml.Elem =
-    soapSecurityHeaderTemplate(auth.key, auth.token1, auth.token2)
-
-  /**
-   * Create the CRM security SOAP element.
-   */
-  def soapSecurityHeaderTemplate(keyIdentifier: String, token1: String, token2: String): xml.Elem =
-    <o:Security s:mustUnderstand="1" xmlns:o="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" xmlns:u="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd" xmlns="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
-      <EncryptedData Id="Assertion0" Type="http://www.w3.org/2001/04/xmlenc#Element" xmlns="http://www.w3.org/2001/04/xmlenc#">
-        <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#tripledes-cbc"/>
-        <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-          <EncryptedKey>
-            <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p"></EncryptionMethod>
-            <ds:KeyInfo Id="keyinfo">
-              <wsse:SecurityTokenReference xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
-                <wsse:KeyIdentifier EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary" ValueType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-x509-token-profile-1.0#X509SubjectKeyIdentifier">{ keyIdentifier }</wsse:KeyIdentifier>
-              </wsse:SecurityTokenReference>
-            </ds:KeyInfo>
-            <CipherData>
-              <CipherValue>{ token1 }</CipherValue>
-            </CipherData>
-          </EncryptedKey>
-        </ds:KeyInfo>
-        <CipherData>
-          <CipherValue>{ token2 }</CipherValue>
-        </CipherData>
-      </EncryptedData>
-    </o:Security>
+  //  /**
+  //   *  Create standard IOrganization service execute headers. Does *not* include security header.
+  //   *  Requires 'a' NS to be http://www.w3.org/2005/08/addressing?
+  //   */
+  //  def CreateExecuteHeaders(toUrl: String): xml.NodeSeq = {
+  //    <a:Action s:mustUnderstand="1">http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute</a:Action>
+  //    <a:ReplyTo><a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address></a:ReplyTo>
+  //    <a:To s:mustUnderstand="1">{ endpoint(toUrl) }</a:To> ++ { messageIdEl() }
+  //  }
 
   /** HTTP headers for most SOAP calls. */
-  val StandardHttpHeaders = collection.Map(
-    "Accept" -> "application/xml, text/xml, */*",
-    "Content-Type" -> "text/xml; charset=utf-8",
-    "SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
+  //  val StandardHttpHeaders = collection.Map(
+  //    "Accept" -> "application/xml, text/xml, */*",
+  //    "Content-Type" -> "text/xml; charset=utf-8",
+  //    "SOAPAction" -> "http://schemas.microsoft.com/xrm/2011/Contracts/Services/IOrganizationService/Execute")
 
   val DefaultAspect = 1
   val EntityAspect = 1
@@ -298,8 +439,8 @@ trait CrmAuth {
         <a:ReplyTo>
           <a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address>
         </a:ReplyTo>
-        <a:To s:mustUnderstand="1">{ endpoint(auth.url) }</a:To>
-        { soapSecurityHeaderTemplate(auth) }
+        <a:To s:mustUnderstand="1">{ endpoint(auth.uri) }</a:To>
+        { crm.sdk.messages.soaprequestwriters.soapSecurityHeaderTemplate(auth) }
       </s:Header>
       <s:Body>
         <RetrieveMultiple xmlns="http://schemas.microsoft.com/xrm/2011/Contracts/Services">
@@ -308,6 +449,7 @@ trait CrmAuth {
       </s:Body>
     </s:Envelope>
 
+  /*
   /**
    * Get a page of entity results wrapped in a Task. Returns
    * `(Envelope, Option[PagingInfo], moreRecords)`. The
@@ -392,6 +534,9 @@ trait CrmAuth {
     retry.Pause(retrys, pauseInSeconds.seconds)(() => makeRequest)
   }(strategy, ec)
 
+*/
+
+  /*
   /**
    * Return an org services auth and org services url given user information and
    * a web app URL and region abbreviation.
@@ -436,6 +581,13 @@ trait CrmAuth {
     }
   }
 
+  /** A service provided by CRM, organization or discovery. */
+  trait CrmService
+  abstract class DiscoveryService extends CrmService {
+    def authenticate(username: String, password: String, regionAbbrev: String = "NA"): Unit
+  }
+  abstract class OrganizationService extends CrmService
+
   import soapreaders._
 
   /**
@@ -478,14 +630,14 @@ trait CrmAuth {
       }
     }
   }
-  
-  /** Obtain a data services auth given a data services URL directly.
+
+  /**
+   * Obtain a data services auth given a data services URL directly.
    */
   def orgServicesAuthF(http: HttpExecutor, username: String, password: String, dataServicesUrl: String, leaseTime: Int)(implicit ec: ExecutionContext): Future[CrmAuthenticationHeader] = {
-      GetHeaderOnline(username, password, dataServicesUrl, http, leaseTime)
+    GetHeaderOnline(username, password, dataServicesUrl, http, leaseTime)
   }
-  
-
+*/
 }
 
 object CrmAuth extends CrmAuth

@@ -23,15 +23,14 @@ import cats.implicits._
 import cats.syntax._
 import sdk.driver.CrmException
 import fs2._
-import dispatch.retry._
 import metadata._
 
 /**
  * CRM online provides discovery services. Given a region, you can
  * obtain the discovery URL. Given a discovery URL, user credentials
  * and a web app URL, you can obtain an org services data URL. While
- * the form of the org services data URL has not changed much, the 
- * approach to obtain an org data servces unl that will always work is 
+ * the form of the org services data URL has not changed much, the
+ * approach to obtain an org data servces unl that will always work is
  * to go through the discovery services.
  */
 package object discovery {
@@ -40,7 +39,7 @@ package object discovery {
 
   /** The discovery service has discovery requests. */
   sealed trait DiscoveryRequest
-  
+
   /** Retrieve organization detail information for each org. */
   case object RetrieveOrganizationsRequest extends DiscoveryRequest
 
@@ -70,4 +69,6 @@ package object discovery {
     urnMap.get(urlx.getHost) getOrElse defaultUrn
   }
 
+  val discoveryServiceExecuteAction =
+    "http://schemas.microsoft.com/xrm/2011/Contracts/Discovery/IDiscoveryService/Execute"
 }

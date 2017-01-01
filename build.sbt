@@ -7,13 +7,14 @@ name := "mscrm-auth"
 organization := "crm"
 version := "0.1.0"
 scalaVersion := "2.11.8"
+//scalaVersion := "2.12.1"
 
-scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8")
+scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8", "-Xexperimental")
 
 resolvers += Resolver.url("file://" + Path.userHome.absolutePath + "/.ivy/local")
 resolvers += Resolver.sonatypeRepo("releases")
 resolvers += "Local Maven Repository" at "file://"+Path.userHome.absolutePath+"/.m2/repository"
-resolvers += Resolver.bintrayRepo("scalaz", "releases")
+//resolvers += Resolver.bintrayRepo("scalaz", "releases")
 resolvers += Resolver.jcenterRepo
 
 
@@ -24,18 +25,23 @@ libraryDependencies ++= Seq(
     ,"com.github.scopt" %% "scopt" % "latest.release"
     ,"ch.qos.logback" % "logback-classic" % "latest.release"
     ,"ch.qos.logback" % "logback-core" % "latest.release"
-    ,"net.databinder.dispatch" %% "dispatch-core" % "latest.release"
+    //,"net.databinder.dispatch" %% "dispatch-core" % "latest.release"
     ,"commons-codec" % "commons-codec" % "latest.release"
     ,"org.scala-lang.modules" %% "scala-async" % "latest.release"
-    ,"com.lucidchart" %% "xtract" % "latest.release"
+    ,"com.lucidchart" % "xtract_2.11" % "latest.release"
     ,"org.log4s" %% "log4s" % "latest.release"
-    ,"com.github.pathikrit" %% "better-files" % "latest.release"
+    ,"com.github.pathikrit" % "better-files_2.11" % "latest.release"
     ,"com.iheart" %% "ficus" % "latest.release"
-    ,"org.typelevel" %% "cats" % "0.7.2" // 0.7.2 for 2.11, if using Xor
+    ,"org.typelevel" % "cats_2.11" % "latest.version" //"0.7.2" // 0.7.2 for 2.11, if using Xor
     ,"co.fs2" %% "fs2-core" % "latest.release"
     ,"co.fs2" %% "fs2-io" % "latest.release"
+    , "co.fs2" %% "fs2-cats" % "latest.release"
     ,"org.apache.commons" % "commons-lang3" % "latest.release"
     ,"org.apache.ddlutils" % "ddlutils" % "latest.release"
+    ,"org.asynchttpclient" % "async-http-client" % "latest.version"
+    , "io.netty" % "netty-all" % "latest.release"
+    , "me.lessis" % "retry_2.11" % "latest.version"
+    , "me.lessis" % "odelay-netty_2.11" % "latest.version"
 )
 
 libraryDependencies ++= Seq(

@@ -2,7 +2,6 @@ package crm
 
 import scala.language._
 import scala.util.control.Exception._
-import dispatch._, Defaults._
 import java.util.Date;
 import cats._
 import cats.data._
@@ -17,9 +16,10 @@ import com.lucidchart.open.xtract._
 import play.api.libs.functional.syntax._
 import scala.language.implicitConversions
 
-import com.ning.http.client.Response
+import org.asynchttpclient._
 import com.lucidchart.open.xtract._
 import com.lucidchart.open.xtract.{ XmlReader, _ }
+import scala.collection.JavaConverters._
 
 package object sdk {
 
@@ -62,7 +62,7 @@ package object sdk {
    */
   def rtos(raw: Response) = {
     import scala.collection.JavaConverters._
-    val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
+    val headers = raw.getHeaders.names.asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
     s"""Error during processing. Providing headers and response.
 Headers:
 $headers    
@@ -144,7 +144,7 @@ ${raw.getResponseBody}
   /** Convert a raw response to a string listing headers and the response body. */
   def show(raw: Response) = {
     import scala.collection.JavaConverters._
-    val headers = raw.getHeaders().keySet().asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
+    val headers = raw.getHeaders.names.asScala.map(k => s"'$k' -> '${raw.getHeader(k)}'").mkString("\n")
     s"""Headers:
 $headers    
 ResponseBody:
@@ -162,7 +162,7 @@ ${raw.getResponseBody}
    */
   case class Fault(
     errorCode: Int = -1,
-    message: String = "A fault occurred.") extends ResponseBody
+    message: String = "A SOAP fault occurred.") extends ResponseBody
 
   case class PagingInfo(count: Int = 0, page: Int = 1, cookie: Option[String] = None,
     returnTotalRecordCount: Boolean = false)
@@ -282,10 +282,13 @@ ${raw.getResponseBody}
   case class Envelope(header: ResponseHeader, body: ResponseBody)
 
   /** Basic online authentication information. */
-  trait AuthenticationHeader {
-    def key: String
-    def token1: String
-    def token2: String
+  sealed trait AuthenticationHeader {
+    /** Token expiration. */
+    def expires: Date
+    /** Security token (<Security>...</Security> suitable for a SOAP XML Envelope. */
+    def xmlContent: String
+    /** URI that identifies the endpoint. It is usually in the form of an URL. */
+    def uri: String
   }
 
   /**
@@ -294,8 +297,25 @@ ${raw.getResponseBody}
    * @param url URL that the authentication is related to.
    */
   case class CrmAuthenticationHeader( /*Header: scala.xml.Elem = null,*/
-    key: String = "", token1: String = "", token2: String = "",
-    Expires: Date = null, url: String = "") extends AuthenticationHeader
+    expires: Date,
+    xmlContent: String,
+    uri: String,
+    key: String = "", token1: String = "", token2: String = "") extends AuthenticationHeader
+
+  /** On Prem authentication header. */
+  case class CrmOnPremAuthenticationHeader(
+    expires: java.util.Date,
+    xmlContent: String,
+    uri: String,
+    key: String,
+    token1: String,
+    token2: String,
+    x509IssuerName: String,
+    x509SerialNumber: String,
+    signatureValue: String,
+    digestValue: String,
+    created: String,
+    expiresStr: String) extends AuthenticationHeader
 
   implicit class EnrichedEnvelope(e: Envelope) {
     /**
@@ -311,7 +331,7 @@ ${raw.getResponseBody}
   /**
    * Hack job...a library should have this somewhere that is much smarter.
    *  This only fixes type signatures but does not translate different
-   *  representations. Both access methods throw exceptions if the 
+   *  representations. Both access methods throw exceptions if the
    *  expected type is wrong.
    */
   implicit class EnrichedMap(m: Map[String, Any]) {

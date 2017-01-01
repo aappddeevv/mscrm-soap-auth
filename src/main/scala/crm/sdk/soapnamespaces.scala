@@ -37,6 +37,7 @@ trait soapnamespaces extends NamespaceLookup {
     "i" -> NSSchemaInstance,
     "b" -> NSCollectionsGeneric,
     "c" -> NSSchema,
+    "d" -> NSServices,
     "e" -> NSSerialization,
     "f" -> NSSerializationArrays,
     "g" -> NSXrmContracts,

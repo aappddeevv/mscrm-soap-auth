@@ -5,7 +5,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._, Defaults._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -29,11 +28,14 @@ import CrmAuth._
 import sdk.messages.soaprequestwriters._
 import sdk.messages._
 
+
 /**
  * Functions that compose streams of values from the underlying
  * CRM server requests.
  */
 object streamhelpers {
+
+  /*
   import org.apache.commons.lang3.StringEscapeUtils._
   import soapnamespaces._
   import sdk.messages.soaprequestwriters._
@@ -265,6 +267,5 @@ object streamhelpers {
       }
     }
   }
-
+*/
 }
-

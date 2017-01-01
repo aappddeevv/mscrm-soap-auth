@@ -4,7 +4,6 @@ import scala.language._
 import scala.util.control.Exception._
 import scopt._
 import org.w3c.dom._
-import dispatch._
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.async.Async._
@@ -32,7 +31,7 @@ import sdk._
 import sdk.discovery._
 
 object Discovery {
-
+/*
   private[this] implicit val logger = getLogger
 
   import scala.util.control.Exception._
@@ -41,8 +40,6 @@ object Discovery {
    * Run discovery commands.
    */
   def apply(config: Config): Unit = {
-
-    import Defaults._
 
     println("Discovery mode")
     config.discoveryAction match {
@@ -66,7 +63,7 @@ object Discovery {
 
       case "saveDiscoveryWsdl" =>
         println(s"Retrieving discovery service wsdl from ${config.url}")
-        val http = client(config) // in case there are redirects
+        val http = httphelpers.client(config) // in case there are redirects
         val qp = Map("wsdl" -> null)
         val req = url(endpoint(config.url)) <<? qp
         val fut = http(req OKWithBody as.xml.Elem).unwrapEx.
@@ -99,7 +96,7 @@ object Discovery {
         val qp = config.sdkVersion.map(v => Map("singleWsdl" -> null, "sdkversion" -> v)) getOrElse Map("wsdl" -> "wsdl0")
         val req = url(endpoint(config.url)) <<? qp
         logger.debug("WSDL request: " + req.toRequest)
-        val http = client(config) // in case there are redirects
+        val http = httphelpers.client(config) // in case there are redirects
         val fut = http(req OKWithBody as.xml.Elem).unwrapEx.
           recover {
             case x: ApiHttpError =>
@@ -174,4 +171,5 @@ object Discovery {
       case _ =>
     }
   }
+  */
 }

@@ -18,7 +18,6 @@ import javax.xml.xpath.XPathExpressionException;
 import org.apache.commons.codec.binary.Base64;
 import org.w3c.dom._
 import org.xml.sax.SAXException;
-import dispatch._, Defaults._
 import org.log4s._
 import com.lucidchart.open.xtract._
 import com.lucidchart.open.xtract.{ XmlReader, __ }
